@@ -5,7 +5,6 @@ import { useParams, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/app-context";
 import {
-  Badge,
   Button,
   Card,
   ConfirmDialog,
@@ -15,11 +14,13 @@ import {
   Select,
   Textarea,
 } from "@/components/ui";
+import { InterestBadge, INTEREST_LEVEL_ORDER } from "@/components/InterestBadge";
 import {
-  formatDisplayDate,
-  interestColor,
-  scripturesToString,
-} from "@/lib/utils";
+  ScriptureBadgeList,
+  StatusBadge,
+  TopicBadge,
+} from "@/components/badges";
+import { formatDisplayDate } from "@/lib/utils";
 import { INTEREST_LABELS, type InterestLevel } from "@/lib/types";
 
 export default function PersonProfilePage() {
@@ -171,7 +172,7 @@ export default function PersonProfilePage() {
           }
         >
           <option value="">Not set</option>
-          {(Object.keys(INTEREST_LABELS) as InterestLevel[]).map((k) => (
+          {INTEREST_LEVEL_ORDER.map((k) => (
             <option key={k} value={k}>
               {INTEREST_LABELS[k]}
             </option>
@@ -209,18 +210,10 @@ export default function PersonProfilePage() {
       <PageHeader
         title={person.name}
         subtitle={person.general_location || "No location set"}
-        action={
-          person.interest_level ? (
-            <Badge className={interestColor(person.interest_level)}>
-              {INTEREST_LABELS[person.interest_level]}
-            </Badge>
-          ) : undefined
-        }
+        action={<InterestBadge level={person.interest_level} showUnknown />}
       />
 
-      {person.is_demo && (
-        <Badge className="bg-amber-50 text-amber-700">Demo data</Badge>
-      )}
+      {person.is_demo && <StatusBadge kind="demo" label="Demo data" />}
 
       <Card className="space-y-2 text-sm">
         <Row label="Preferred time" value={person.preferred_contact_time} />
@@ -232,7 +225,14 @@ export default function PersonProfilePage() {
               : null
           }
         />
-        <Row label="Discussion theme" value={person.current_discussion_theme} />
+        <div className="flex items-start justify-between gap-3">
+          <span className="text-stone-500">Discussion theme</span>
+          {person.current_discussion_theme ? (
+            <TopicBadge topic={person.current_discussion_theme} />
+          ) : (
+            <span className="text-stone-400">—</span>
+          )}
+        </div>
         <Row label="Key questions" value={person.key_questions} />
         <Row
           label="Next visit"
@@ -256,7 +256,7 @@ export default function PersonProfilePage() {
 
       <div className="grid grid-cols-2 gap-2">
         <Link href={`/conversations/record?personId=${person.id}`}>
-          <Button className="w-full" size="sm">
+          <Button variant="record" className="w-full" size="sm">
             Record
           </Button>
         </Link>
@@ -295,23 +295,31 @@ export default function PersonProfilePage() {
           <div className="space-y-3">
             {timeline.map((c) => (
               <Card key={c.id}>
-                <p className="text-xs font-medium text-teal-800">
-                  {formatDisplayDate(c.conversation_date)}
-                  {c.approximate_time ? ` · ${c.approximate_time}` : ""}
-                </p>
-                <p className="mt-2 text-sm leading-relaxed text-stone-700">
-                  {c.summary || c.main_topic || "Conversation"}
-                </p>
-                {(c.scriptures?.length || 0) > 0 && (
-                  <p className="mt-2 text-xs text-stone-500">
-                    Scriptures:{" "}
-                    {scripturesToString(
-                      c.scriptures!.map((s) => s.scripture_reference)
-                    )}
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-xs font-medium text-stone-500">
+                    {formatDisplayDate(c.conversation_date)}
+                    {c.approximate_time ? ` · ${c.approximate_time}` : ""}
+                  </p>
+                  <InterestBadge level={person.interest_level} />
+                </div>
+                {c.main_topic ? (
+                  <div className="mt-2">
+                    <TopicBadge topic={c.main_topic} />
+                  </div>
+                ) : null}
+                {c.summary && (
+                  <p className="mt-2 text-sm leading-relaxed text-stone-700">
+                    {c.summary}
                   </p>
                 )}
+                {(c.scriptures?.length || 0) > 0 && (
+                  <ScriptureBadgeList
+                    className="mt-2"
+                    references={c.scriptures!.map((s) => s.scripture_reference)}
+                  />
+                )}
                 {c.questions_asked && (
-                  <p className="mt-1 text-xs text-stone-500">
+                  <p className="mt-2 text-xs text-stone-500">
                     Questions: {c.questions_asked}
                   </p>
                 )}
@@ -320,9 +328,15 @@ export default function PersonProfilePage() {
                     Shared: {c.publications_shared}
                   </p>
                 )}
-                {(c.next_topic || c.action_required) && (
+                {c.next_topic && (
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs text-stone-500">Next:</span>
+                    <TopicBadge topic={c.next_topic} tone="amber" />
+                  </div>
+                )}
+                {!c.next_topic && c.action_required && (
                   <p className="mt-2 text-xs font-medium text-stone-600">
-                    Next: {c.next_topic || c.action_required}
+                    Next: {c.action_required}
                   </p>
                 )}
               </Card>

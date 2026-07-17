@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button, Input, Select, Textarea } from "@/components/ui";
+import { InterestBadge, INTEREST_LEVEL_ORDER } from "@/components/InterestBadge";
 import {
   EMPTY_CONVERSATION_FORM,
   INTEREST_LABELS,
@@ -82,8 +83,8 @@ export function ConversationForm({
       )}
 
       {form.summary && (
-        <div className="rounded-2xl bg-teal-50/80 p-4 ring-1 ring-teal-100">
-          <p className="text-xs font-semibold uppercase tracking-wide text-teal-800">
+        <div className="rounded-2xl bg-stone-50 p-4 ring-1 ring-stone-200/80">
+          <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">
             Summary
           </p>
           <Textarea
@@ -101,8 +102,13 @@ export function ConversationForm({
         onChange={(e) => {
           const id = e.target.value;
           const person = people.find((p) => p.id === id);
-          update("person_id", id);
-          if (person) update("person_name", person.name);
+          setForm((prev) => ({
+            ...prev,
+            person_id: id,
+            person_name: person?.name || prev.person_name,
+            // Person profile is the source of truth for interest.
+            interest_level: person?.interest_level || prev.interest_level || "",
+          }));
         }}
       >
         <option value="">New person</option>
@@ -190,19 +196,24 @@ export function ConversationForm({
       />
 
       <Select
-        label="Apparent interest level"
+        label="Interest level"
         value={form.interest_level}
         onChange={(e) =>
           update("interest_level", e.target.value as InterestLevel | "")
         }
       >
         <option value="">Not set</option>
-        {(Object.keys(INTEREST_LABELS) as InterestLevel[]).map((key) => (
+        {INTEREST_LEVEL_ORDER.map((key) => (
           <option key={key} value={key}>
             {INTEREST_LABELS[key]}
           </option>
         ))}
       </Select>
+      {form.interest_level ? (
+        <div className="-mt-2">
+          <InterestBadge level={form.interest_level} />
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-3">
         <Input
@@ -255,7 +266,7 @@ export function ConversationForm({
             type="checkbox"
             checked={form.keep_audio}
             onChange={(e) => update("keep_audio", e.target.checked)}
-            className="h-4 w-4 rounded border-stone-300 text-teal-700"
+            className="h-4 w-4 rounded border-stone-300 text-emerald-700"
           />
           Keep audio recording after transcription
         </label>

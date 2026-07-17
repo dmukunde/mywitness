@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/lib/app-context";
 import { Card, PageHeader, SectionTitle } from "@/components/ui";
+import { ScriptureBadge, TopicBadge } from "@/components/badges";
 import {
   formatDuration,
   formatDisplayDate,
@@ -133,7 +134,7 @@ export default function ActivityPage() {
                   <p className="font-medium text-stone-900">
                     {formatDisplayDate(date)}
                   </p>
-                  <p className="font-display text-lg font-semibold text-teal-900">
+                  <p className="font-display text-lg font-semibold text-emerald-900">
                     {formatDuration(minutes)}
                   </p>
                 </div>
@@ -170,8 +171,8 @@ export default function ActivityPage() {
         ) : (
           <div className="space-y-2">
             {stats.topTopics.map(([topic, count]) => (
-              <Card key={topic} className="flex justify-between gap-3 py-3">
-                <span className="text-sm text-stone-800">{topic}</span>
+              <Card key={topic} className="flex items-center justify-between gap-3 py-3">
+                <TopicBadge topic={topic} />
                 <span className="text-sm text-stone-400">{count}</span>
               </Card>
             ))}
@@ -188,8 +189,8 @@ export default function ActivityPage() {
         ) : (
           <div className="space-y-2">
             {stats.topScriptures.map(([ref, count]) => (
-              <Card key={ref} className="flex justify-between gap-3 py-3">
-                <span className="text-sm text-stone-800">{ref}</span>
+              <Card key={ref} className="flex items-center justify-between gap-3 py-3">
+                <ScriptureBadge reference={ref} />
                 <span className="text-sm text-stone-400">{count}</span>
               </Card>
             ))}
@@ -204,7 +205,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   return (
     <Card className="text-center">
       <p className="text-xs text-stone-500">{label}</p>
-      <p className="mt-1 font-display text-xl font-semibold text-teal-900">
+      <p className="mt-1 font-display text-xl font-semibold text-emerald-900">
         {value}
       </p>
     </Card>

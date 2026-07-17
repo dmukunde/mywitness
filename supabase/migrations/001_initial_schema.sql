@@ -33,7 +33,9 @@ CREATE TABLE IF NOT EXISTS people (
   general_location TEXT,
   preferred_contact_time TEXT,
   first_met_date DATE,
-  interest_level TEXT CHECK (interest_level IN ('unknown', 'low', 'moderate', 'high', 'very_high')),
+  interest_level TEXT CHECK (interest_level IN (
+    'unknown', 'very_low', 'low', 'moderate', 'high', 'very_high', 'bible_study'
+  )),
   current_discussion_theme TEXT,
   key_questions TEXT,
   private_notes TEXT,
@@ -78,7 +80,9 @@ CREATE TABLE IF NOT EXISTS conversations (
   questions_asked TEXT,
   concerns_circumstances TEXT,
   publications_shared TEXT,
-  interest_level TEXT CHECK (interest_level IN ('unknown', 'low', 'moderate', 'high', 'very_high')),
+  interest_level TEXT CHECK (interest_level IN (
+    'unknown', 'very_low', 'low', 'moderate', 'high', 'very_high', 'bible_study'
+  )),
   promised_follow_up_date DATE,
   promised_follow_up_time TEXT,
   next_topic TEXT,

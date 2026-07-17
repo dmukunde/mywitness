@@ -3,10 +3,13 @@
 import Link from "next/link";
 import { useMemo } from "react";
 import { useApp } from "@/lib/app-context";
-import { Badge, Card, EmptyState, PageHeader, SectionTitle } from "@/components/ui";
+import { Card, EmptyState, PageHeader, SectionTitle } from "@/components/ui";
+import { InterestBadge } from "@/components/InterestBadge";
+import { StatusBadge, TopicBadge } from "@/components/badges";
 import { formatDisplayDate, todayISO } from "@/lib/utils";
 import { isBefore, parseISO } from "date-fns";
-import type { ReturnVisit } from "@/lib/types";
+import type { InterestLevel, Person, ReturnVisit } from "@/lib/types";
+import type { VisitBadgeKind } from "@/components/badges";
 
 export default function ReturnVisitsPage() {
   const { returnVisits, people } = useApp();
@@ -23,10 +26,10 @@ export default function ReturnVisitsPage() {
     return { todayList, upcoming, overdue, completed };
   }, [returnVisits, today]);
 
-  const nameFor = (rv: ReturnVisit) =>
-    rv.person?.name ||
-    people.find((p) => p.id === rv.person_id)?.name ||
-    "Person";
+  const personFor = (rv: ReturnVisit): Person | undefined =>
+    rv.person || people.find((p) => p.id === rv.person_id);
+
+  const nameFor = (rv: ReturnVisit) => personFor(rv)?.name || "Person";
 
   return (
     <div className="animate-fade-up space-y-6">
@@ -35,10 +38,34 @@ export default function ReturnVisitsPage() {
         subtitle="Prepare and follow through"
       />
 
-      <VisitSection title="Today" items={sections.todayList} nameFor={nameFor} badge="Today" badgeClass="bg-amber-100 text-amber-800" />
-      <VisitSection title="Overdue" items={sections.overdue} nameFor={nameFor} badge="Overdue" badgeClass="bg-rose-100 text-rose-700" />
-      <VisitSection title="Upcoming" items={sections.upcoming} nameFor={nameFor} />
-      <VisitSection title="Completed" items={sections.completed} nameFor={nameFor} badge="Done" badgeClass="bg-teal-50 text-teal-800" />
+      <VisitSection
+        title="Today"
+        items={sections.todayList}
+        nameFor={nameFor}
+        personFor={personFor}
+        statusKind="today"
+      />
+      <VisitSection
+        title="Overdue"
+        items={sections.overdue}
+        nameFor={nameFor}
+        personFor={personFor}
+        statusKind="overdue"
+      />
+      <VisitSection
+        title="Upcoming"
+        items={sections.upcoming}
+        nameFor={nameFor}
+        personFor={personFor}
+        statusKind="upcoming"
+      />
+      <VisitSection
+        title="Completed"
+        items={sections.completed}
+        nameFor={nameFor}
+        personFor={personFor}
+        statusKind="done"
+      />
     </div>
   );
 }
@@ -47,14 +74,14 @@ function VisitSection({
   title,
   items,
   nameFor,
-  badge,
-  badgeClass,
+  personFor,
+  statusKind,
 }: {
   title: string;
   items: ReturnVisit[];
   nameFor: (rv: ReturnVisit) => string;
-  badge?: string;
-  badgeClass?: string;
+  personFor: (rv: ReturnVisit) => Person | undefined;
+  statusKind?: VisitBadgeKind;
 }) {
   return (
     <section>
@@ -63,35 +90,63 @@ function VisitSection({
         <EmptyState title={`No ${title.toLowerCase()} visits`} />
       ) : (
         <div className="space-y-2">
-          {items.map((rv) => (
-            <Link key={rv.id} href={`/return-visits/${rv.id}`}>
-              <Card className="mb-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="font-medium text-stone-900">{nameFor(rv)}</p>
-                    <p className="mt-1 text-sm text-stone-500">
-                      {formatDisplayDate(rv.scheduled_date)}
-                      {rv.scheduled_time ? ` · ${rv.scheduled_time}` : ""}
-                    </p>
-                    <p className="mt-2 text-sm text-stone-700">
-                      {rv.next_planned_topic || rv.last_topic || "Follow-up"}
-                    </p>
-                    {rv.question_to_answer && (
-                      <p className="mt-1 text-xs text-stone-500">
-                        Q: {rv.question_to_answer}
+          {items.map((rv) => {
+            const person = personFor(rv);
+            const topic = rv.next_planned_topic || rv.last_topic;
+            return (
+              <Link key={rv.id} href={`/return-visits/${rv.id}`}>
+                <Card
+                  className={
+                    statusKind === "overdue"
+                      ? "mb-2 ring-rose-100"
+                      : statusKind === "done"
+                        ? "mb-2 ring-yellow-100"
+                        : "mb-2 ring-violet-100/70"
+                  }
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-medium text-stone-900">
+                        {nameFor(rv)}
                       </p>
-                    )}
-                    {rv.general_location && (
-                      <p className="mt-1 text-xs text-stone-400">
-                        {rv.general_location}
+                      <p className="mt-1 text-sm text-stone-500">
+                        {formatDisplayDate(rv.scheduled_date)}
+                        {rv.scheduled_time ? ` · ${rv.scheduled_time}` : ""}
                       </p>
-                    )}
+                      {topic && (
+                        <div className="mt-2">
+                          <TopicBadge
+                            topic={topic}
+                            tone={
+                              statusKind === "upcoming" || statusKind === "today"
+                                ? "amber"
+                                : undefined
+                            }
+                          />
+                        </div>
+                      )}
+                      {rv.question_to_answer && (
+                        <p className="mt-2 text-xs text-stone-500">
+                          Q: {rv.question_to_answer}
+                        </p>
+                      )}
+                      {rv.general_location && (
+                        <p className="mt-1 text-xs text-stone-400">
+                          {rv.general_location}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5">
+                      {statusKind && <StatusBadge kind={statusKind} />}
+                      <InterestBadge
+                        level={person?.interest_level as InterestLevel | null}
+                      />
+                    </div>
                   </div>
-                  {badge && <Badge className={badgeClass}>{badge}</Badge>}
-                </div>
-              </Card>
-            </Link>
-          ))}
+                </Card>
+              </Link>
+            );
+          })}
         </div>
       )}
     </section>

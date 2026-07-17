@@ -28,7 +28,7 @@ export default function AppShellLayout({
     return (
       <div className="flex min-h-dvh items-center justify-center">
         <div className="text-center">
-          <p className="font-display text-2xl font-bold tracking-tight text-teal-900">
+          <p className="font-display text-2xl font-bold tracking-tight text-emerald-900">
             MyWitness
           </p>
           <p className="mt-1 text-sm text-stone-500">

@@ -55,12 +55,13 @@ export function Button({
         size === "sm" && "px-3 py-2 text-sm min-h-10",
         size === "md" && "px-4 py-3 text-base min-h-12",
         size === "lg" && "px-5 py-4 text-lg min-h-14",
-        variant === "primary" && "bg-teal-700 text-white shadow-sm hover:bg-teal-800",
+        variant === "primary" &&
+          "bg-emerald-700 text-white shadow-sm hover:bg-emerald-800",
         variant === "secondary" && "bg-stone-100 text-stone-800 hover:bg-stone-200",
         variant === "ghost" && "bg-transparent text-stone-700 hover:bg-stone-100",
         variant === "danger" && "bg-rose-600 text-white hover:bg-rose-700",
         variant === "record" &&
-          "bg-gradient-to-br from-teal-600 to-emerald-700 text-white shadow-lg shadow-teal-700/20",
+          "bg-gradient-to-br from-emerald-600 to-green-700 text-white shadow-lg shadow-emerald-800/20",
         className
       )}
       {...props}
@@ -83,7 +84,7 @@ export function Input({
       )}
       <input
         className={cn(
-          "w-full rounded-xl border border-stone-200 bg-white px-3.5 py-3 text-base text-stone-900 outline-none ring-teal-600/0 transition focus:border-teal-600 focus:ring-2 focus:ring-teal-600/20",
+          "w-full rounded-xl border border-stone-200 bg-white px-3.5 py-3 text-base text-stone-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20",
           className
         )}
         {...props}
@@ -109,7 +110,7 @@ export function Textarea({
       )}
       <textarea
         className={cn(
-          "w-full rounded-xl border border-stone-200 bg-white px-3.5 py-3 text-base text-stone-900 outline-none transition focus:border-teal-600 focus:ring-2 focus:ring-teal-600/20 min-h-24",
+          "w-full rounded-xl border border-stone-200 bg-white px-3.5 py-3 text-base text-stone-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 min-h-24",
           className
         )}
         {...props}
@@ -132,7 +133,7 @@ export function Select({
       )}
       <select
         className={cn(
-          "w-full rounded-xl border border-stone-200 bg-white px-3.5 py-3 text-base text-stone-900 outline-none transition focus:border-teal-600 focus:ring-2 focus:ring-teal-600/20",
+          "w-full rounded-xl border border-stone-200 bg-white px-3.5 py-3 text-base text-stone-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20",
           className
         )}
         {...props}

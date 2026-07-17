@@ -642,6 +642,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
           data.people = data.people.map((p) =>
             p.id === person.id ? { ...p, ...person, updated_at: now } : p
           );
+          // Keep denormalized conversation interest in sync with person (source of truth).
+          if (person.interest_level != null) {
+            data.conversations = data.conversations.map((c) =>
+              c.person_id === person.id
+                ? { ...c, interest_level: person.interest_level! }
+                : c
+            );
+          }
           saveDemoData(data);
           applyDemo(data);
           return data.people.find((p) => p.id === person.id)!;
@@ -677,8 +685,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
           .select()
           .single();
         if (error) throw error;
+        const updated = data as Person;
+        setPeople((prev) =>
+          prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p))
+        );
+        // Mirror person interest onto conversations so list UIs stay consistent.
+        if (updated.interest_level != null) {
+          await supabase
+            .from("conversations")
+            .update({ interest_level: updated.interest_level })
+            .eq("person_id", updated.id);
+          setConversations((prev) =>
+            prev.map((c) =>
+              c.person_id === updated.id
+                ? { ...c, interest_level: updated.interest_level }
+                : c
+            )
+          );
+        }
         await refresh();
-        return data as Person;
+        return updated;
       }
       const { data, error } = await supabase
         .from("people")
@@ -789,14 +815,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (form: ConversationFormData) => {
       let person: Person;
       if (form.person_id) {
-        person = await savePerson({
+        const personPatch: Partial<Person> & { id: string; name: string } = {
           id: form.person_id,
           name: form.person_name || "Unknown",
           general_location: form.general_location || null,
-          interest_level: form.interest_level || "unknown",
           current_discussion_theme: form.main_topic || null,
           key_questions: form.questions_asked || null,
-        });
+        };
+        if (form.interest_level) {
+          personPatch.interest_level = form.interest_level;
+        }
+        person = await savePerson(personPatch);
       } else {
         person = await savePerson({
           name: form.person_name || "Unknown",
@@ -808,6 +837,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           preferred_contact_time: form.promised_follow_up_time || null,
         });
       }
+
+      // Person profile is the single source of truth.
+      const interestForConversation = person.interest_level;
 
       const now = new Date().toISOString();
       const scriptureList = parseScriptures(form.scriptures);
@@ -827,7 +859,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           questions_asked: form.questions_asked || null,
           concerns_circumstances: form.concerns_circumstances || null,
           publications_shared: form.publications_shared || null,
-          interest_level: form.interest_level || null,
+          interest_level: interestForConversation,
           promised_follow_up_date: form.promised_follow_up_date || null,
           promised_follow_up_time: form.promised_follow_up_time || null,
           next_topic: form.next_topic || null,
@@ -900,10 +932,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const supabase = createClient();
       const sessionId = emptyToNull(form.session_id);
-      const interest =
-        form.interest_level && form.interest_level.length
-          ? form.interest_level
-          : null;
 
       const { data: conversation, error } = await supabase
         .from("conversations")
@@ -919,7 +947,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           questions_asked: emptyToNull(form.questions_asked),
           concerns_circumstances: emptyToNull(form.concerns_circumstances),
           publications_shared: emptyToNull(form.publications_shared),
-          interest_level: interest,
+          interest_level: interestForConversation,
           promised_follow_up_date: emptyToNull(form.promised_follow_up_date),
           promised_follow_up_time: emptyToNull(form.promised_follow_up_time),
           next_topic: emptyToNull(form.next_topic),

@@ -1,4 +1,12 @@
-export type InterestLevel = "unknown" | "low" | "moderate" | "high" | "very_high";
+export type InterestLevel =
+  | "unknown"
+  | "very_low"
+  | "low"
+  | "moderate"
+  | "high"
+  | "very_high"
+  | "bible_study";
+
 
 export type MinistryType =
   | "house_to_house"
@@ -193,10 +201,12 @@ export interface ConversationFormData {
 
 export const INTEREST_LABELS: Record<InterestLevel, string> = {
   unknown: "Unknown",
+  very_low: "Very Low",
   low: "Low",
   moderate: "Moderate",
   high: "High",
-  very_high: "Very high",
+  very_high: "Very High",
+  bible_study: "⭐ Bible Study",
 };
 
 export const MINISTRY_TYPE_LABELS: Record<MinistryType, string> = {

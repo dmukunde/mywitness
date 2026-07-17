@@ -14,6 +14,11 @@ import {
 } from "lucide-react";
 import { ConversationForm } from "@/components/ConversationForm";
 import { Button, Card, PageHeader } from "@/components/ui";
+import {
+  ScriptureBadgeList,
+  TopicBadge,
+} from "@/components/badges";
+import { InterestBadge } from "@/components/InterestBadge";
 import { useApp } from "@/lib/app-context";
 import { useVoiceRecorder, type RecorderStatus } from "@/hooks/useVoiceRecorder";
 import {
@@ -24,6 +29,7 @@ import {
 import {
   formatDisplayDate,
   getNextSaturdayAfternoon,
+  parseScriptures,
   scripturesToString,
   todayISO,
 } from "@/lib/utils";
@@ -231,8 +237,8 @@ function RecordConversationInner() {
         />
 
         {form.summary && (
-          <Card className="bg-teal-50/80 ring-teal-100">
-            <p className="text-xs font-semibold uppercase tracking-wide text-teal-800">
+          <Card className="bg-stone-50 ring-stone-200/80">
+            <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">
               Summary
             </p>
             <p className="mt-2 text-sm leading-relaxed text-stone-800">
@@ -252,16 +258,41 @@ function RecordConversationInner() {
             value={form.general_location}
             uncertain={uncertainFields.includes("general_location")}
           />
-          <SummaryRow
-            label="Main discussion topic"
-            value={form.main_topic}
-            uncertain={uncertainFields.includes("main_discussion_topic")}
-          />
-          <SummaryRow
-            label="Scriptures discussed"
-            value={form.scriptures}
-            uncertain={uncertainFields.includes("scriptures_discussed")}
-          />
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">
+              Main discussion topic
+              {uncertainFields.includes("main_discussion_topic") && (
+                <span className="ml-2 font-medium normal-case text-amber-700">
+                  Please confirm
+                </span>
+              )}
+            </p>
+            {form.main_topic ? (
+              <div className="mt-2">
+                <TopicBadge topic={form.main_topic} />
+              </div>
+            ) : (
+              <p className="mt-1 text-sm text-stone-400">—</p>
+            )}
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">
+              Scriptures discussed
+              {uncertainFields.includes("scriptures_discussed") && (
+                <span className="ml-2 font-medium normal-case text-amber-700">
+                  Please confirm
+                </span>
+              )}
+            </p>
+            {form.scriptures.trim() ? (
+              <ScriptureBadgeList
+                className="mt-2"
+                references={parseScriptures(form.scriptures)}
+              />
+            ) : (
+              <p className="mt-1 text-sm text-stone-400">—</p>
+            )}
+          </div>
           <SummaryRow
             label="Questions raised"
             value={form.questions_asked}
@@ -280,11 +311,33 @@ function RecordConversationInner() {
               uncertainFields.includes("proposed_return_visit_time")
             }
           />
-          <SummaryRow
-            label="Next planned topic"
-            value={form.next_topic}
-            uncertain={uncertainFields.includes("next_planned_topic")}
-          />
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">
+              Next planned topic
+              {uncertainFields.includes("next_planned_topic") && (
+                <span className="ml-2 font-medium normal-case text-amber-700">
+                  Please confirm
+                </span>
+              )}
+            </p>
+            {form.next_topic ? (
+              <div className="mt-2">
+                <TopicBadge topic={form.next_topic} tone="amber" />
+              </div>
+            ) : (
+              <p className="mt-1 text-sm text-stone-400">—</p>
+            )}
+          </div>
+          {form.interest_level ? (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">
+                Interest level
+              </p>
+              <div className="mt-2">
+                <InterestBadge level={form.interest_level} />
+              </div>
+            </div>
+          ) : null}
         </Card>
 
         {error && (
@@ -340,7 +393,7 @@ function RecordConversationInner() {
                 ? "bg-rose-600 text-white"
                 : status === "paused"
                   ? "bg-amber-500 text-white"
-                  : "bg-teal-700 text-white"
+                  : "bg-emerald-700 text-white"
             }`}
           >
             {isProcessing(status) ? (
@@ -481,10 +534,12 @@ function mapExtraction(
   const interest = extraction.interest_level;
   const interestLevel =
     interest === "unknown" ||
+    interest === "very_low" ||
     interest === "low" ||
     interest === "moderate" ||
     interest === "high" ||
-    interest === "very_high"
+    interest === "very_high" ||
+    interest === "bible_study"
       ? interest
       : "";
 

@@ -4,8 +4,24 @@
   --background: #f4f7f5;
   --foreground: #1c1917;
   --surface: #ffffff;
-  --accent: #0f766e;
-  --accent-soft: #ccfbf1;
+  /* Primary actions / Record / Bible Study */
+  --accent: #047857;
+  --accent-soft: #d1fae5;
+  /* Return visits / follow-up */
+  --visit: #6d28d9;
+  --visit-soft: #ede9fe;
+  /* Scriptures */
+  --scripture: #0369a1;
+  --scripture-soft: #e0f2fe;
+  /* Topics */
+  --topic: #b45309;
+  --topic-soft: #fef3c7;
+  /* Attention / overdue */
+  --danger: #e11d48;
+  --danger-soft: #ffe4e6;
+  /* Success / milestones */
+  --gold: #a16207;
+  --gold-soft: #fef9c3;
   --muted: #78716c;
 }
 
@@ -57,7 +73,7 @@ body {
   position: absolute;
   inset: -8px;
   border-radius: 9999px;
-  border: 2px solid rgb(13 148 136 / 0.45);
+  border: 2px solid rgb(5 150 105 / 0.45);
   animation: pulse-ring 1.6s ease-out infinite;
 }
 

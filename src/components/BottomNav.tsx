@@ -34,7 +34,7 @@ export function BottomNav() {
                 href={href}
                 className={cn(
                   "flex min-h-16 flex-col items-center justify-center gap-1 px-1 py-2 text-[11px] font-medium transition-colors",
-                  active ? "text-teal-800" : "text-stone-400"
+                  active ? "text-emerald-800" : "text-stone-400"
                 )}
               >
                 <Icon

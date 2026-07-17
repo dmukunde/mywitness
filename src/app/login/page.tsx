@@ -215,10 +215,10 @@ function LoginForm() {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center px-5 py-10">
       <div className="animate-fade-up">
-        <p className="font-display text-4xl font-semibold tracking-tight text-teal-900">
+        <p className="font-display text-4xl font-semibold tracking-tight text-emerald-900">
           MyWitness
         </p>
-        <p className="mt-1 text-base font-medium text-teal-800/90">
+        <p className="mt-1 text-base font-medium text-emerald-800/90">
           Personal Ministry Companion
         </p>
         <p className="mt-3 max-w-sm text-base leading-relaxed text-stone-600">
@@ -286,7 +286,7 @@ function LoginForm() {
           </p>
         )}
         {message && (
-          <p className="rounded-xl bg-teal-50 px-3 py-2 text-sm text-teal-800">
+          <p className="rounded-xl bg-yellow-50 px-3 py-2 text-sm text-yellow-950 ring-1 ring-yellow-200/70">
             {message}
           </p>
         )}
@@ -301,7 +301,7 @@ function LoginForm() {
 
         <button
           type="button"
-          className="w-full text-center text-sm text-teal-800"
+          className="w-full text-center text-sm text-emerald-800"
           onClick={() => {
             setMode((m) => (m === "signin" ? "signup" : "signin"));
             setFormError(null);

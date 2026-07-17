@@ -13,7 +13,18 @@ import {
   PageHeader,
   Textarea,
 } from "@/components/ui";
-import { formatDisplayDate, scripturesToString } from "@/lib/utils";
+import {
+  formatDisplayDate,
+  todayISO,
+} from "@/lib/utils";
+import {
+  ScriptureBadgeList,
+  StatusBadge,
+  TopicBadge,
+  statusKindFromReturnVisit,
+} from "@/components/badges";
+import { InterestBadge } from "@/components/InterestBadge";
+import { isBefore, parseISO } from "date-fns";
 
 export default function ReturnVisitPrepPage() {
   const params = useParams<{ id: string }>();
@@ -48,6 +59,17 @@ export default function ReturnVisitPrepPage() {
       .filter((c) => c.person_id === visit.person_id)
       .sort((a, b) => b.conversation_date.localeCompare(a.conversation_date))[0];
 
+  const today = todayISO();
+  const overdue =
+    visit.status === "planned" &&
+    isBefore(parseISO(visit.scheduled_date), parseISO(today));
+  const isToday =
+    visit.status === "planned" && visit.scheduled_date === today;
+  const statusKind = statusKindFromReturnVisit(visit.status, {
+    overdue,
+    isToday,
+  });
+
   const markCompleted = async () => {
     await updateReturnVisit(visit.id, {
       status: "completed",
@@ -79,28 +101,50 @@ export default function ReturnVisitPrepPage() {
         subtitle={`${formatDisplayDate(visit.scheduled_date)}${
           visit.scheduled_time ? ` · ${visit.scheduled_time}` : ""
         }`}
+        action={
+          <div className="flex flex-col items-end gap-1.5">
+            <StatusBadge kind={statusKind} />
+            <InterestBadge level={person?.interest_level} />
+          </div>
+        }
       />
 
-      <Card className="space-y-3">
+      <Card className="space-y-4 ring-violet-100/80">
         <Block
           label="Previous conversation summary"
           value={conversation?.summary || visit.last_topic}
         />
-        <Block
-          label="Scriptures previously discussed"
-          value={
-            conversation?.scriptures?.length
-              ? scripturesToString(
-                  conversation.scriptures.map((s) => s.scripture_reference)
-                )
-              : null
-          }
-        />
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">
+            Scriptures previously discussed
+          </p>
+          {conversation?.scriptures?.length ? (
+            <ScriptureBadgeList
+              className="mt-2"
+              references={conversation.scriptures.map(
+                (s) => s.scripture_reference
+              )}
+            />
+          ) : (
+            <p className="mt-1 text-sm text-stone-400">—</p>
+          )}
+        </div>
         <Block
           label="Unresolved questions"
           value={visit.question_to_answer || conversation?.questions_asked}
         />
-        <Block label="Planned next topic" value={visit.next_planned_topic} />
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">
+            Planned next topic
+          </p>
+          {visit.next_planned_topic ? (
+            <div className="mt-2">
+              <TopicBadge topic={visit.next_planned_topic} tone="amber" />
+            </div>
+          ) : (
+            <p className="mt-1 text-sm text-stone-400">—</p>
+          )}
+        </div>
         <Block
           label="Personal preparation notes"
           value={visit.preparation_notes || conversation?.next_visit_preparation}

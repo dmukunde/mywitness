@@ -5,14 +5,15 @@ import { useMemo, useState } from "react";
 import { Plus, Search } from "lucide-react";
 import { useApp } from "@/lib/app-context";
 import {
-  Badge,
   Button,
   Card,
   EmptyState,
   PageHeader,
   Select,
 } from "@/components/ui";
-import { formatDisplayDate, interestColor, todayISO } from "@/lib/utils";
+import { InterestBadge, INTEREST_LEVEL_ORDER } from "@/components/InterestBadge";
+import { StatusBadge, TopicBadge } from "@/components/badges";
+import { formatDisplayDate, todayISO } from "@/lib/utils";
 import { INTEREST_LABELS, type Person } from "@/lib/types";
 import { isBefore, parseISO } from "date-fns";
 
@@ -112,7 +113,7 @@ export default function PeoplePage() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search name, topic, scripture, notes…"
-            className="w-full rounded-xl border border-stone-200 bg-white py-3 pl-10 pr-3 text-base outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-600/20"
+            className="w-full rounded-xl border border-stone-200 bg-white py-3 pl-10 pr-3 text-base outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"
           />
         </div>
         <div className="grid grid-cols-2 gap-2">
@@ -121,9 +122,9 @@ export default function PeoplePage() {
             onChange={(e) => setInterestFilter(e.target.value)}
           >
             <option value="all">All interest</option>
-            {Object.entries(INTEREST_LABELS).map(([k, v]) => (
+            {INTEREST_LEVEL_ORDER.map((k) => (
               <option key={k} value={k}>
-                {v}
+                {INTEREST_LABELS[k]}
               </option>
             ))}
           </Select>
@@ -185,18 +186,20 @@ function PersonCard({
       <Card className="mb-2">
         <div className="flex items-start justify-between gap-2">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
               <p className="font-medium text-stone-900">{person.name}</p>
-              {person.is_demo && (
-                <Badge className="bg-amber-50 text-amber-700">Demo</Badge>
-              )}
-              {overdue && (
-                <Badge className="bg-rose-100 text-rose-700">Overdue</Badge>
-              )}
+              {person.is_demo && <StatusBadge kind="demo" />}
+              {overdue && <StatusBadge kind="overdue" />}
             </div>
-            <p className="mt-1 text-sm text-stone-600">
-              {latestTopic || person.current_discussion_theme || "No topic yet"}
-            </p>
+            {(latestTopic || person.current_discussion_theme) ? (
+              <div className="mt-2">
+                <TopicBadge
+                  topic={latestTopic || person.current_discussion_theme || ""}
+                />
+              </div>
+            ) : (
+              <p className="mt-1 text-sm text-stone-500">No topic yet</p>
+            )}
             <p className="mt-2 text-xs text-stone-500">
               Last contact:{" "}
               {lastContact ? formatDisplayDate(lastContact) : "—"}
@@ -205,11 +208,7 @@ function PersonCard({
                 : " · No visit scheduled"}
             </p>
           </div>
-          {person.interest_level && (
-            <Badge className={interestColor(person.interest_level)}>
-              {INTEREST_LABELS[person.interest_level]}
-            </Badge>
-          )}
+          <InterestBadge level={person.interest_level} />
         </div>
       </Card>
     </Link>

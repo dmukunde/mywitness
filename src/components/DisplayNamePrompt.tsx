@@ -16,7 +16,7 @@ export function DisplayNamePrompt() {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-900/40 p-4 sm:items-center">
       <div className="w-full max-w-md rounded-3xl bg-white p-5 shadow-xl animate-fade-up">
-        <p className="text-sm font-medium text-teal-800">MyWitness</p>
+        <p className="text-sm font-medium text-emerald-800">MyWitness</p>
         <h2 className="mt-1 font-display text-xl font-semibold text-stone-900">
           What would you like MyWitness to call you?
         </h2>

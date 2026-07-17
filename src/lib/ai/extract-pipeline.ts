@@ -101,7 +101,7 @@ CRITICAL RULES:
 - proposed_return_visit_time: "Morning", "Afternoon", "Evening", or "" when a time period was spoken.
 - next_planned_topic: what they planned to discuss on the return visit.
 - materials_shared: publications/brochures/tracts left or shared (e.g. ["Brochure"]).
-- interest_level: unknown|low|moderate|high|very_high or "" only if clearly indicated.
+- interest_level: unknown|very_low|low|moderate|high|very_high|bible_study or "" only if clearly indicated.
 - summary: 2-3 sentences built ONLY from the structured fields above (same facts). Do not invent extra facts.
 - Do not use alternate key names. Use the exact keys listed.`;
 

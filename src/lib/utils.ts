@@ -1,5 +1,4 @@
 import { format, formatDistanceToNow, isToday, isTomorrow, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, differenceInMinutes } from "date-fns";
-import type { InterestLevel } from "./types";
 
 export function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -115,21 +114,6 @@ export function monthRange() {
 
 export function minutesBetween(start: string, end: string) {
   return Math.max(0, differenceInMinutes(parseISO(end), parseISO(start)));
-}
-
-export function interestColor(level: InterestLevel | null | undefined) {
-  switch (level) {
-    case "very_high":
-      return "bg-emerald-100 text-emerald-800";
-    case "high":
-      return "bg-teal-100 text-teal-800";
-    case "moderate":
-      return "bg-sky-100 text-sky-800";
-    case "low":
-      return "bg-stone-100 text-stone-600";
-    default:
-      return "bg-stone-50 text-stone-500";
-  }
 }
 
 export function parseScriptures(value: string): string[] {

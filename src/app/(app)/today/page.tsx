@@ -1,29 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Mic, NotebookPen } from "lucide-react";
 import { useApp } from "@/lib/app-context";
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  SectionTitle,
-} from "@/components/ui";
+import { Button, Card, EmptyState, SectionTitle } from "@/components/ui";
 import { MinistryTimeEditor } from "@/components/MinistryTimeEditor";
+import { InterestBadge } from "@/components/InterestBadge";
+import {
+  StatusBadge,
+  SuccessBanner,
+  TopicBadge,
+} from "@/components/badges";
 import {
   formatDisplayDate,
   formatFullDate,
   formatDuration,
   greetingForNow,
-  interestColor,
   todayISO,
   minutesBetween,
 } from "@/lib/utils";
-import { INTEREST_LABELS } from "@/lib/types";
-import { Suspense } from "react";
 
 function TodayInner() {
   const router = useRouter();
@@ -103,7 +100,7 @@ function TodayInner() {
     <div className="space-y-8 animate-fade-up">
       <header>
         <p
-          className="font-display font-bold tracking-tight text-teal-900"
+          className="font-display font-bold tracking-tight text-emerald-900"
           style={{ fontSize: 32, lineHeight: 1.15 }}
         >
           MyWitness
@@ -130,18 +127,14 @@ function TodayInner() {
       </header>
 
       {savedBanner && (
-        <div className="rounded-2xl bg-teal-50 px-4 py-3 text-sm text-teal-900 ring-1 ring-teal-100">
+        <SuccessBanner
+          onDismiss={() => {
+            setDismissedBanner(true);
+            router.replace("/today", { scroll: false });
+          }}
+        >
           {savedBanner}
-          <button
-            className="ml-2 text-teal-700 underline"
-            onClick={() => {
-              setDismissedBanner(true);
-              router.replace("/today", { scroll: false });
-            }}
-          >
-            Dismiss
-          </button>
-        </div>
+        </SuccessBanner>
       )}
 
       <Card>
@@ -162,7 +155,7 @@ function TodayInner() {
           </>
         ) : (
           <>
-            <p className="mt-2 font-display text-2xl font-semibold text-teal-800">
+            <p className="mt-2 font-display text-2xl font-semibold text-emerald-800">
               {formatDuration(todaysMinistryMinutes)}
             </p>
             <p className="mt-1 text-sm text-stone-500">{conversationLabel}</p>
@@ -204,7 +197,7 @@ function TodayInner() {
             {reminders.slice(0, 3).map((r) => (
               <Card
                 key={r.id}
-                className="flex items-start justify-between gap-3"
+                className="flex items-start justify-between gap-3 ring-violet-100"
                 onClick={() => {
                   if (r.return_visit_id) {
                     router.push(`/return-visits/${r.return_visit_id}`);
@@ -221,7 +214,7 @@ function TodayInner() {
                 </div>
                 <button
                   type="button"
-                  className="shrink-0 text-xs text-teal-800"
+                  className="shrink-0 text-xs font-medium text-violet-800"
                   onClick={(e) => {
                     e.stopPropagation();
                     void dismissReminder(r.id);
@@ -241,26 +234,33 @@ function TodayInner() {
           <EmptyState title="No return visits due today" />
         ) : (
           <div className="space-y-2">
-            {dueToday.map((rv) => (
-              <Link key={rv.id} href={`/return-visits/${rv.id}`}>
-                <Card className="mb-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="font-medium text-stone-900">
-                        {rv.person?.name ||
-                          people.find((p) => p.id === rv.person_id)?.name ||
-                          "Person"}
-                      </p>
-                      <p className="mt-1 text-sm text-stone-500">
-                        {rv.scheduled_time || "Anytime"} ·{" "}
-                        {rv.next_planned_topic || rv.last_topic || "Follow up"}
-                      </p>
+            {dueToday.map((rv) => {
+              const topic = rv.next_planned_topic || rv.last_topic;
+              return (
+                <Link key={rv.id} href={`/return-visits/${rv.id}`}>
+                  <Card className="mb-2 ring-violet-100/80">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-medium text-stone-900">
+                          {rv.person?.name ||
+                            people.find((p) => p.id === rv.person_id)?.name ||
+                            "Person"}
+                        </p>
+                        <p className="mt-1 text-sm text-stone-500">
+                          {rv.scheduled_time || "Anytime"}
+                        </p>
+                        {topic && (
+                          <div className="mt-2">
+                            <TopicBadge topic={topic} />
+                          </div>
+                        )}
+                      </div>
+                      <StatusBadge kind="today" />
                     </div>
-                    <Badge className="bg-amber-100 text-amber-800">Today</Badge>
-                  </div>
-                </Card>
-              </Link>
-            ))}
+                  </Card>
+                </Link>
+              );
+            })}
           </div>
         )}
       </section>
@@ -271,21 +271,34 @@ function TodayInner() {
           <EmptyState title="Nothing scheduled ahead" />
         ) : (
           <div className="space-y-2">
-            {upcoming.map((rv) => (
-              <Link key={rv.id} href={`/return-visits/${rv.id}`}>
-                <Card className="mb-2">
-                  <p className="font-medium text-stone-900">
-                    {rv.person?.name ||
-                      people.find((p) => p.id === rv.person_id)?.name ||
-                      "Person"}
-                  </p>
-                  <p className="mt-1 text-sm text-stone-500">
-                    {formatDisplayDate(rv.scheduled_date)}
-                    {rv.scheduled_time ? ` · ${rv.scheduled_time}` : ""}
-                  </p>
-                </Card>
-              </Link>
-            ))}
+            {upcoming.map((rv) => {
+              const topic = rv.next_planned_topic || rv.last_topic;
+              return (
+                <Link key={rv.id} href={`/return-visits/${rv.id}`}>
+                  <Card className="mb-2 ring-violet-100/60">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-medium text-stone-900">
+                          {rv.person?.name ||
+                            people.find((p) => p.id === rv.person_id)?.name ||
+                            "Person"}
+                        </p>
+                        <p className="mt-1 text-sm text-stone-500">
+                          {formatDisplayDate(rv.scheduled_date)}
+                          {rv.scheduled_time ? ` · ${rv.scheduled_time}` : ""}
+                        </p>
+                        {topic && (
+                          <div className="mt-2">
+                            <TopicBadge topic={topic} tone="amber" />
+                          </div>
+                        )}
+                      </div>
+                      <StatusBadge kind="upcoming" />
+                    </div>
+                  </Card>
+                </Link>
+              );
+            })}
           </div>
         )}
       </section>
@@ -309,19 +322,25 @@ function TodayInner() {
                 >
                   <Card className="mb-2">
                     <div className="flex items-start justify-between gap-2">
-                      <div>
+                      <div className="min-w-0">
                         <p className="font-medium text-stone-900">
                           {person?.name || "Unknown"}
                         </p>
-                        <p className="mt-1 text-sm text-stone-500">
-                          {c.main_topic || c.summary || "Conversation"}
-                        </p>
+                        {c.main_topic ? (
+                          <div className="mt-2">
+                            <TopicBadge topic={c.main_topic} />
+                          </div>
+                        ) : (
+                          <p className="mt-1 text-sm text-stone-500">
+                            {c.summary || "Conversation"}
+                          </p>
+                        )}
                       </div>
-                      {c.interest_level && (
-                        <Badge className={interestColor(c.interest_level)}>
-                          {INTEREST_LABELS[c.interest_level]}
-                        </Badge>
-                      )}
+                      <InterestBadge
+                        level={
+                          person?.interest_level || c.interest_level || null
+                        }
+                      />
                     </div>
                   </Card>
                 </Link>

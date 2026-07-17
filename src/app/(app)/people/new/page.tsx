@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/lib/app-context";
 import { Button, Input, PageHeader, Select, Textarea } from "@/components/ui";
+import { INTEREST_LEVEL_ORDER } from "@/components/InterestBadge";
 import { INTEREST_LABELS, type InterestLevel } from "@/lib/types";
 import { todayISO } from "@/lib/utils";
 
@@ -72,7 +73,7 @@ export default function NewPersonPage() {
         onChange={(e) => setInterest(e.target.value as InterestLevel | "")}
       >
         <option value="">Not set</option>
-        {(Object.keys(INTEREST_LABELS) as InterestLevel[]).map((k) => (
+        {INTEREST_LEVEL_ORDER.map((k) => (
           <option key={k} value={k}>
             {INTEREST_LABELS[k]}
           </option>
