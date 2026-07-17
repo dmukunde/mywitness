@@ -1,0 +1,217 @@
+"use client";
+
+import Link from "next/link";
+import { useMemo, useState } from "react";
+import { Plus, Search } from "lucide-react";
+import { useApp } from "@/lib/app-context";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  PageHeader,
+  Select,
+} from "@/components/ui";
+import { formatDisplayDate, interestColor, todayISO } from "@/lib/utils";
+import { INTEREST_LABELS, type Person } from "@/lib/types";
+import { isBefore, parseISO } from "date-fns";
+
+type SortKey = "recent" | "upcoming" | "overdue" | "name";
+
+export default function PeoplePage() {
+  const { people, conversations, returnVisits } = useApp();
+  const [query, setQuery] = useState("");
+  const [interestFilter, setInterestFilter] = useState("all");
+  const [sort, setSort] = useState<SortKey>("recent");
+  const today = todayISO();
+
+  const enriched = useMemo(() => {
+    return people.map((person) => {
+      const personConvs = conversations
+        .filter((c) => c.person_id === person.id)
+        .sort((a, b) => b.conversation_date.localeCompare(a.conversation_date));
+      const latest = personConvs[0];
+      const nextVisit = returnVisits
+        .filter((rv) => rv.person_id === person.id && rv.status === "planned")
+        .sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date))[0];
+      const overdue =
+        !!nextVisit &&
+        isBefore(parseISO(nextVisit.scheduled_date), parseISO(today));
+
+      const haystack = [
+        person.name,
+        person.general_location,
+        person.current_discussion_theme,
+        person.key_questions,
+        person.private_notes,
+        latest?.main_topic,
+        latest?.questions_asked,
+        latest?.additional_notes,
+        latest?.summary,
+        ...(latest?.scriptures?.map((s) => s.scripture_reference) || []),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return { person, latest, nextVisit, overdue, haystack };
+    });
+  }, [people, conversations, returnVisits, today]);
+
+  const filtered = useMemo(() => {
+    let list = enriched;
+    const q = query.trim().toLowerCase();
+    if (q) list = list.filter((item) => item.haystack.includes(q));
+    if (interestFilter !== "all") {
+      list = list.filter(
+        (item) => item.person.interest_level === interestFilter
+      );
+    }
+
+    list = [...list].sort((a, b) => {
+      if (sort === "name") return a.person.name.localeCompare(b.person.name);
+      if (sort === "recent") {
+        const ad = a.latest?.conversation_date || a.person.updated_at;
+        const bd = b.latest?.conversation_date || b.person.updated_at;
+        return bd.localeCompare(ad);
+      }
+      if (sort === "upcoming") {
+        const ad = a.nextVisit?.scheduled_date || "9999";
+        const bd = b.nextVisit?.scheduled_date || "9999";
+        return ad.localeCompare(bd);
+      }
+      // overdue first
+      if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
+      const ad = a.nextVisit?.scheduled_date || "9999";
+      const bd = b.nextVisit?.scheduled_date || "9999";
+      return ad.localeCompare(bd);
+    });
+
+    return list;
+  }, [enriched, query, interestFilter, sort]);
+
+  return (
+    <div className="animate-fade-up">
+      <PageHeader
+        title="People"
+        subtitle="Everyone you've recorded"
+        action={
+          <Link href="/people/new">
+            <Button size="sm">
+              <Plus className="h-4 w-4" />
+              Add
+            </Button>
+          </Link>
+        }
+      />
+
+      <div className="mb-4 space-y-3">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search name, topic, scripture, notes…"
+            className="w-full rounded-xl border border-stone-200 bg-white py-3 pl-10 pr-3 text-base outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-600/20"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Select
+            value={interestFilter}
+            onChange={(e) => setInterestFilter(e.target.value)}
+          >
+            <option value="all">All interest</option>
+            {Object.entries(INTEREST_LABELS).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </Select>
+          <Select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortKey)}
+          >
+            <option value="recent">Sort: Recent</option>
+            <option value="upcoming">Sort: Upcoming</option>
+            <option value="overdue">Sort: Overdue</option>
+            <option value="name">Sort: Name</option>
+          </Select>
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <EmptyState
+          title="No people found"
+          description="Add a person or record a conversation to get started."
+          action={
+            <Link href="/people/new">
+              <Button>Add Person</Button>
+            </Link>
+          }
+        />
+      ) : (
+        <div className="space-y-2">
+          {filtered.map(({ person, latest, nextVisit, overdue }) => (
+            <PersonCard
+              key={person.id}
+              person={person}
+              latestTopic={latest?.main_topic}
+              lastContact={latest?.conversation_date || person.first_met_date}
+              nextVisit={nextVisit?.scheduled_date}
+              overdue={overdue}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PersonCard({
+  person,
+  latestTopic,
+  lastContact,
+  nextVisit,
+  overdue,
+}: {
+  person: Person;
+  latestTopic?: string | null;
+  lastContact?: string | null;
+  nextVisit?: string | null;
+  overdue: boolean;
+}) {
+  return (
+    <Link href={`/people/${person.id}`}>
+      <Card className="mb-2">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-2">
+              <p className="font-medium text-stone-900">{person.name}</p>
+              {person.is_demo && (
+                <Badge className="bg-amber-50 text-amber-700">Demo</Badge>
+              )}
+              {overdue && (
+                <Badge className="bg-rose-100 text-rose-700">Overdue</Badge>
+              )}
+            </div>
+            <p className="mt-1 text-sm text-stone-600">
+              {latestTopic || person.current_discussion_theme || "No topic yet"}
+            </p>
+            <p className="mt-2 text-xs text-stone-500">
+              Last contact:{" "}
+              {lastContact ? formatDisplayDate(lastContact) : "—"}
+              {nextVisit
+                ? ` · Next: ${formatDisplayDate(nextVisit)}`
+                : " · No visit scheduled"}
+            </p>
+          </div>
+          {person.interest_level && (
+            <Badge className={interestColor(person.interest_level)}>
+              {INTEREST_LABELS[person.interest_level]}
+            </Badge>
+          )}
+        </div>
+      </Card>
+    </Link>
+  );
+}
