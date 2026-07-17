@@ -1,22 +1,18 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createClient, isOpenAIConfigured } from "@/lib/supabase/server";
+import { extractConversationFromTranscript } from "@/lib/ai/extraction";
 import {
-  EXTRACTION_SYSTEM_PROMPT,
-  extractionSchema,
-} from "@/lib/ai/extraction";
-import { format } from "date-fns";
+  logOpenAIError,
+  missingOpenAIKeyResponse,
+  openaiErrorForClient,
+} from "@/lib/ai/openai-errors";
 
 export async function POST(request: Request) {
   try {
     if (!isOpenAIConfigured()) {
-      return NextResponse.json(
-        {
-          error:
-            "OPENAI_API_KEY is missing or still a placeholder. Add a real key in .env.local (and Vercel), then restart.",
-        },
-        { status: 500 }
-      );
+      const { message, status } = missingOpenAIKeyResponse();
+      return NextResponse.json({ error: message }, { status });
     }
     const openaiKey = process.env.OPENAI_API_KEY!.trim();
 
@@ -38,33 +34,19 @@ export async function POST(request: Request) {
     }
 
     const openai = new OpenAI({ apiKey: openaiKey });
-    const today = format(new Date(), "yyyy-MM-dd");
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      response_format: { type: "json_object" },
-      temperature: 0.2,
-      messages: [
-        { role: "system", content: EXTRACTION_SYSTEM_PROMPT },
-        {
-          role: "user",
-          content: `Today's date is ${today}.\n\nTranscript:\n${transcript}`,
-        },
-      ],
-    });
-
-    const raw = completion.choices[0]?.message?.content || "{}";
-    const extraction = extractionSchema.parse(JSON.parse(raw));
+    const extraction = await extractConversationFromTranscript(
+      openai,
+      transcript,
+      {
+        localDate: body.localDate ? String(body.localDate) : null,
+        timezone: body.timezone ? String(body.timezone) : null,
+      }
+    );
 
     return NextResponse.json({ extraction });
   } catch (error) {
-    console.error("extract error", error);
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Extraction failed.",
-      },
-      { status: 500 }
-    );
+    logOpenAIError("extract", error);
+    const { message, status } = openaiErrorForClient(error);
+    return NextResponse.json({ error: message }, { status });
   }
 }

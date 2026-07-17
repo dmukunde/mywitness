@@ -1,27 +1,38 @@
 "use client";
 
 import { useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { useApp } from "@/lib/app-context";
 import { Card, PageHeader, SectionTitle } from "@/components/ui";
 import {
   formatDuration,
+  formatDisplayDate,
   monthRange,
   todayISO,
   weekRange,
+  minutesBetween,
 } from "@/lib/utils";
 import { isBefore, parseISO } from "date-fns";
 
 export default function ActivityPage() {
+  const router = useRouter();
   const { sessions, conversations, returnVisits, people } = useApp();
   const today = todayISO();
   const week = weekRange();
   const month = monthRange();
 
   const stats = useMemo(() => {
+    // Ministry minutes come only from daily ministry time records.
     const minutesFor = (start: string, end: string) =>
       sessions
         .filter((s) => s.session_date >= start && s.session_date <= end)
-        .reduce((sum, s) => sum + (s.duration_minutes || 0), 0);
+        .reduce((sum, s) => {
+          if (s.duration_minutes != null) return sum + s.duration_minutes;
+          if (s.end_time) {
+            return sum + minutesBetween(s.start_time, s.end_time);
+          }
+          return sum;
+        }, 0);
 
     const convCount = (start: string, end: string) =>
       conversations.filter(
@@ -70,6 +81,19 @@ export default function ActivityPage() {
     };
   }, [sessions, conversations, returnVisits, people, today, week, month]);
 
+  const recentDays = useMemo(() => {
+    const byDate = new Map<string, number>();
+    for (const s of sessions) {
+      const mins =
+        s.duration_minutes ??
+        (s.end_time ? minutesBetween(s.start_time, s.end_time) : 0);
+      byDate.set(s.session_date, (byDate.get(s.session_date) || 0) + mins);
+    }
+    return [...byDate.entries()]
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .slice(0, 14);
+  }, [sessions]);
+
   return (
     <div className="animate-fade-up space-y-6">
       <PageHeader
@@ -79,11 +103,44 @@ export default function ActivityPage() {
 
       <section>
         <SectionTitle title="Ministry time" />
+        <p className="mb-2 text-xs text-stone-500">
+          Logged daily totals — not calculated from conversations.
+        </p>
         <div className="grid grid-cols-3 gap-2">
           <Stat label="Today" value={formatDuration(stats.dayMinutes)} />
           <Stat label="This week" value={formatDuration(stats.weekMinutes)} />
           <Stat label="This month" value={formatDuration(stats.monthMinutes)} />
         </div>
+      </section>
+
+      <section>
+        <SectionTitle title="Recent days" />
+        {recentDays.length === 0 ? (
+          <Card>
+            <p className="text-sm text-stone-500">No ministry time logged yet</p>
+          </Card>
+        ) : (
+          <div className="space-y-2">
+            {recentDays.map(([date, minutes]) => (
+              <Card
+                key={date}
+                className={date === today ? "cursor-pointer" : undefined}
+                onClick={
+                  date === today ? () => router.push("/today") : undefined
+                }
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-medium text-stone-900">
+                    {formatDisplayDate(date)}
+                  </p>
+                  <p className="font-display text-lg font-semibold text-teal-900">
+                    {formatDuration(minutes)}
+                  </p>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
       </section>
 
       <section>
@@ -102,9 +159,6 @@ export default function ActivityPage() {
           <Stat label="Overdue" value={String(stats.overdue)} />
           <Stat label="First met" value={String(stats.firstMetThisMonth)} />
         </div>
-        <p className="mt-2 text-xs text-stone-400">
-          “First met” counts people first recorded this month.
-        </p>
       </section>
 
       <section>

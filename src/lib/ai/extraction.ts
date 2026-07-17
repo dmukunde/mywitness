@@ -1,45 +1,114 @@
-import { z } from "zod";
+import type OpenAI from "openai";
+import {
+  buildExtractionUserPrompt,
+  enrichExtraction,
+  extractionContextFromParts,
+  EXTRACTION_SYSTEM_PROMPT,
+  normalizeAndParseExtraction,
+  shouldRetryExtraction,
+  type ConversationExtraction,
+  type ExtractionContext,
+} from "./extract-pipeline";
 
-export const extractionSchema = z.object({
-  person_name: z.string().default(""),
-  conversation_date: z.string().default(""),
-  approximate_time: z.string().default(""),
-  general_location: z.string().default(""),
-  how_met: z.string().default(""),
-  main_topic: z.string().default(""),
-  scriptures: z.array(z.string()).default([]),
-  questions_asked: z.string().default(""),
-  concerns_circumstances: z.string().default(""),
-  publications_shared: z.string().default(""),
-  interest_level: z
-    .enum(["", "unknown", "low", "moderate", "high", "very_high"])
-    .default(""),
-  promised_follow_up_date: z.string().default(""),
-  promised_follow_up_time: z.string().default(""),
-  next_topic: z.string().default(""),
-  action_required: z.string().default(""),
-  additional_notes: z.string().default(""),
-  summary: z.string().default(""),
-  next_visit_preparation: z.string().default(""),
-  uncertain_fields: z.array(z.string()).default([]),
-});
+export type {
+  ConversationExtraction,
+  ExtractionContext,
+} from "./extract-pipeline";
 
-export const EXTRACTION_SYSTEM_PROMPT = `You extract structured ministry conversation notes from a transcript for a private personal organizer.
+export {
+  EXTRACTION_SYSTEM_PROMPT,
+  buildExtractionUserPrompt,
+  buildSummaryFromStructured,
+  enrichExtraction,
+  extractionContextFromParts,
+  extractionSchema,
+  extractQuestions,
+  extractScriptures,
+  normalizeAndParseExtraction,
+  shouldRetryExtraction,
+} from "./extract-pipeline";
 
-CRITICAL ACCURACY RULES:
-- NEVER invent personal information.
-- Only extract details that were clearly and explicitly stated in the transcript.
-- If a detail was not clearly stated, leave that field as an empty string "".
-- When you are unsure about a field, leave it empty AND add the field name to uncertain_fields so the user can confirm.
-- Do NOT infer, guess, or assume: age, exact address, street numbers, GPS, beliefs, family circumstances, marital status, interest level, preferred visit time, publications shared, or follow-up plans — unless the speaker explicitly said them.
-- Do NOT invent a person's name. If no name was spoken, person_name must be "".
-- Do NOT invent scriptures. Only include references that were spoken.
-- Do NOT invent questions. Only include questions the person actually asked.
-- Use general locations only when spoken (e.g. "near the pharmacy"). Never fabricate a location.
-- conversation_date must be YYYY-MM-DD only when a specific date is clear; otherwise "".
-- For relative dates like "next Saturday", resolve them relative to today's date provided by the user ONLY when the speaker clearly promised a return.
-- interest_level must be one of: unknown, low, moderate, high, very_high, or "" — leave "" unless the speaker clearly described interest.
-- scriptures must be an array of scripture references that were spoken (empty array if none).
-- summary must be 2-3 sentences based only on what was said. Do not add new facts.
-- next_visit_preparation must be a short note based only on what was said; otherwise "".
-- Return valid JSON only matching the schema.`;
+export async function extractConversationFromTranscript(
+  openai: OpenAI,
+  transcript: string,
+  contextParts: {
+    localDate?: string | null;
+    timezone?: string | null;
+  }
+): Promise<ConversationExtraction> {
+  const ctx = extractionContextFromParts(contextParts);
+  let extraction = await callExtractOnce(openai, transcript, ctx);
+  extraction = enrichExtraction(extraction, transcript, ctx);
+
+  if (shouldRetryExtraction(extraction, transcript)) {
+    const retry = await callExtractOnce(openai, transcript, ctx, true);
+    const enrichedRetry = enrichExtraction(retry, transcript, ctx);
+    extraction = mergePreferFilled(extraction, enrichedRetry);
+    extraction = enrichExtraction(extraction, transcript, ctx);
+  }
+
+  return extraction;
+}
+
+async function callExtractOnce(
+  openai: OpenAI,
+  transcript: string,
+  ctx: ExtractionContext,
+  isRetry = false
+): Promise<ConversationExtraction> {
+  const retryNote = isRetry
+    ? "\n\nRETRY: Previous extraction left important fields blank. Fill every field that is clearly present in the transcript (person, location, topic, scriptures, questions, return date, next topic, materials)."
+    : "";
+
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    response_format: { type: "json_object" },
+    temperature: isRetry ? 0.1 : 0.2,
+    messages: [
+      { role: "system", content: EXTRACTION_SYSTEM_PROMPT },
+      {
+        role: "user",
+        content: buildExtractionUserPrompt(transcript, ctx) + retryNote,
+      },
+    ],
+  });
+
+  const raw = completion.choices[0]?.message?.content || "{}";
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = {};
+  }
+  return normalizeAndParseExtraction(parsed);
+}
+
+function mergePreferFilled(
+  a: ConversationExtraction,
+  b: ConversationExtraction
+): ConversationExtraction {
+  return normalizeAndParseExtraction({
+    person_name: a.person_name || b.person_name,
+    main_discussion_topic: a.main_discussion_topic || b.main_discussion_topic,
+    scriptures_discussed:
+      a.scriptures_discussed.length > 0
+        ? a.scriptures_discussed
+        : b.scriptures_discussed,
+    questions_raised:
+      a.questions_raised.length > 0 ? a.questions_raised : b.questions_raised,
+    proposed_return_visit_date:
+      a.proposed_return_visit_date || b.proposed_return_visit_date,
+    proposed_return_visit_time:
+      a.proposed_return_visit_time || b.proposed_return_visit_time,
+    proposed_return_visit_date_phrase:
+      a.proposed_return_visit_date_phrase ||
+      b.proposed_return_visit_date_phrase,
+    next_planned_topic: a.next_planned_topic || b.next_planned_topic,
+    general_location: a.general_location || b.general_location,
+    materials_shared:
+      a.materials_shared.length > 0 ? a.materials_shared : b.materials_shared,
+    interest_level: a.interest_level || b.interest_level,
+    additional_notes: a.additional_notes || b.additional_notes,
+    summary: a.summary || b.summary,
+  });
+}

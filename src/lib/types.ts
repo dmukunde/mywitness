@@ -145,26 +145,22 @@ export interface Reminder {
   created_at: string;
 }
 
+/** Canonical AI extraction shape — must match API / Zod schema keys. */
 export interface ConversationExtraction {
   person_name: string;
-  conversation_date: string;
-  approximate_time: string;
+  main_discussion_topic: string;
+  scriptures_discussed: string[];
+  questions_raised: string[];
+  proposed_return_visit_date: string | null;
+  proposed_return_visit_time: string;
+  /** Original relative phrase (e.g. "next Friday") when resolved. */
+  proposed_return_visit_date_phrase?: string;
+  next_planned_topic: string;
   general_location: string;
-  how_met: string;
-  main_topic: string;
-  scriptures: string[];
-  questions_asked: string;
-  concerns_circumstances: string;
-  publications_shared: string;
+  materials_shared: string[];
   interest_level: InterestLevel | "";
-  promised_follow_up_date: string;
-  promised_follow_up_time: string;
-  next_topic: string;
-  action_required: string;
   additional_notes: string;
   summary: string;
-  next_visit_preparation: string;
-  uncertain_fields: string[];
 }
 
 export interface ConversationFormData {

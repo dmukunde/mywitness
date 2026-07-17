@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createClient, isOpenAIConfigured } from "@/lib/supabase/server";
+import { extractConversationFromTranscript } from "@/lib/ai/extraction";
 import {
-  EXTRACTION_SYSTEM_PROMPT,
-  extractionSchema,
-} from "@/lib/ai/extraction";
-import { format } from "date-fns";
+  logOpenAIError,
+  missingOpenAIKeyResponse,
+  openaiErrorForClient,
+} from "@/lib/ai/openai-errors";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -13,13 +14,8 @@ export const maxDuration = 60;
 export async function POST(request: Request) {
   try {
     if (!isOpenAIConfigured()) {
-      return NextResponse.json(
-        {
-          error:
-            "OPENAI_API_KEY is missing or still a placeholder. Add a real key in .env.local (and Vercel), then restart.",
-        },
-        { status: 500 }
-      );
+      const { message, status } = missingOpenAIKeyResponse();
+      return NextResponse.json({ error: message }, { status });
     }
 
     const openaiKey = process.env.OPENAI_API_KEY!.trim();
@@ -38,6 +34,8 @@ export async function POST(request: Request) {
 
     const formData = await request.formData();
     const audio = formData.get("audio");
+    const localDate = String(formData.get("localDate") || "");
+    const timezone = String(formData.get("timezone") || "");
 
     if (!(audio instanceof File)) {
       return NextResponse.json(
@@ -46,7 +44,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Soft limit ~10 minutes / 25MB
     if (audio.size > 25 * 1024 * 1024) {
       return NextResponse.json(
         { error: "Recording is too large. Please keep it under 10 minutes." },
@@ -56,7 +53,6 @@ export async function POST(request: Request) {
 
     const openai = new OpenAI({ apiKey: openaiKey });
 
-    // Upload to private storage temporarily
     const ext = audio.name.split(".").pop() || "webm";
     const audioPath = `${user.id}/${crypto.randomUUID()}.${ext}`;
     const buffer = Buffer.from(await audio.arrayBuffer());
@@ -70,7 +66,6 @@ export async function POST(request: Request) {
 
     if (uploadError) {
       console.error(uploadError);
-      // Continue with transcription even if storage fails
     }
 
     const file = new File([buffer], audio.name || "recording.webm", {
@@ -88,46 +83,20 @@ export async function POST(request: Request) {
         ? transcription
         : (transcription as { text?: string }).text || "";
 
-    const today = format(new Date(), "yyyy-MM-dd");
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      response_format: { type: "json_object" },
-      temperature: 0.2,
-      messages: [
-        { role: "system", content: EXTRACTION_SYSTEM_PROMPT },
-        {
-          role: "user",
-          content: `Today's date is ${today}.\n\nTranscript:\n${transcript}`,
-        },
-      ],
-    });
+    const extraction = await extractConversationFromTranscript(
+      openai,
+      transcript,
+      { localDate, timezone }
+    );
 
-    const raw = completion.choices[0]?.message?.content || "{}";
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      parsed = {};
-    }
-
-    const extraction = extractionSchema.parse(parsed);
-
-    // If user settings say not to keep audio, leave path for client to decide on save
     return NextResponse.json({
       transcript,
       extraction,
       audioPath: uploadError ? null : audioPath,
     });
   } catch (error) {
-    console.error("transcribe error", error);
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Transcription or extraction failed.",
-      },
-      { status: 500 }
-    );
+    logOpenAIError("transcribe", error);
+    const { message, status } = openaiErrorForClient(error);
+    return NextResponse.json({ error: message }, { status });
   }
 }

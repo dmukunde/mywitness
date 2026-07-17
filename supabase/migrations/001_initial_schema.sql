@@ -163,20 +163,37 @@ CREATE TRIGGER return_visits_updated_at BEFORE UPDATE ON return_visits
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- Auto-create profile + settings on signup
-CREATE OR REPLACE FUNCTION handle_new_user()
-RETURNS TRIGGER AS $$
+-- SECURITY DEFINER + fixed search_path so Auth can insert into public tables safely.
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 BEGIN
-  INSERT INTO profiles (id, display_name)
-  VALUES (NEW.id, COALESCE(NEW.raw_user_meta_data->>'display_name', split_part(NEW.email, '@', 1)));
-  INSERT INTO user_settings (user_id) VALUES (NEW.id);
+  INSERT INTO public.profiles (id, display_name)
+  VALUES (
+    NEW.id,
+    NULLIF(NEW.raw_user_meta_data->>'display_name', '')
+  )
+  ON CONFLICT (id) DO NOTHING;
+
+  INSERT INTO public.user_settings (user_id)
+  VALUES (NEW.id)
+  ON CONFLICT (user_id) DO NOTHING;
+
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_new_user();
+
+GRANT EXECUTE ON FUNCTION public.handle_new_user() TO postgres;
+GRANT EXECUTE ON FUNCTION public.handle_new_user() TO service_role;
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_people_user_id ON people(user_id) WHERE archived_at IS NULL;

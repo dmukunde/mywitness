@@ -5,7 +5,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useMemo,
   useState,
   type ReactNode,
 } from "react";
@@ -23,14 +22,14 @@ import type {
   Conversation,
   ConversationFormData,
   MinistrySession,
-  MinistryType,
   Person,
   Profile,
   Reminder,
   ReturnVisit,
   UserSettings,
 } from "@/lib/types";
-import { emptyToNull, minutesBetween, parseScriptures, todayISO } from "@/lib/utils";
+import { emptyToNull, minutesBetween, parseScriptures, sanitizeDisplayName, todayISO } from "@/lib/utils";
+import { addMinutes, format, parseISO } from "date-fns";
 
 const DISPLAY_NAME_KEY = "mywitness-display-name";
 
@@ -45,18 +44,20 @@ interface AppContextValue {
   returnVisits: ReturnVisit[];
   sessions: MinistrySession[];
   reminders: Reminder[];
-  activeSession: MinistrySession | null;
   refresh: () => Promise<void>;
   enableDemoMode: () => void;
   disableDemoMode: () => void;
   resetDemo: () => void;
   updateDisplayName: (name: string) => Promise<void>;
-  startSession: (opts?: {
-    ministry_type?: MinistryType;
-    companion?: string;
-    area?: string;
+  updateEmail: (email: string) => Promise<void>;
+  updatePassword: (password: string) => Promise<void>;
+  /** Upsert a day's ministry time — manual entry only, no live timer. */
+  saveDailyMinistryTime: (input: {
+    date?: string;
+    hours: number;
+    minutes: number;
+    notes?: string;
   }) => Promise<MinistrySession>;
-  endSession: (reflection?: string) => Promise<void>;
   updateSession: (
     id: string,
     patch: Partial<MinistrySession>
@@ -147,109 +148,121 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
-  const refreshFromSupabase = useCallback(async (uid: string) => {
-    const supabase = createClient();
-    const [
-      profileRes,
-      peopleRes,
-      convRes,
-      rvRes,
-      sessionsRes,
-      remindersRes,
-      settingsRes,
-      scripturesRes,
-    ] = await Promise.all([
-      supabase.from("profiles").select("*").eq("id", uid).maybeSingle(),
-      supabase
-        .from("people")
-        .select("*")
-        .eq("user_id", uid)
-        .is("archived_at", null)
-        .order("updated_at", { ascending: false }),
-      supabase
-        .from("conversations")
-        .select("*, person:people(*)")
-        .eq("user_id", uid)
-        .order("conversation_date", { ascending: false }),
-      supabase
-        .from("return_visits")
-        .select("*, person:people(*), conversation:conversations(*)")
-        .eq("user_id", uid)
-        .order("scheduled_date", { ascending: true }),
-      supabase
-        .from("ministry_sessions")
-        .select("*")
-        .eq("user_id", uid)
-        .order("start_time", { ascending: false }),
-      supabase
-        .from("reminders")
-        .select("*")
-        .eq("user_id", uid)
-        .is("dismissed_at", null)
-        .order("due_at", { ascending: true }),
-      supabase.from("user_settings").select("*").eq("user_id", uid).maybeSingle(),
-      supabase.from("conversation_scriptures").select("*").eq("user_id", uid),
-    ]);
+  const refreshFromSupabase = useCallback(
+    async (uid: string, email?: string | null) => {
+      const supabase = createClient();
+      const [
+        profileRes,
+        peopleRes,
+        convRes,
+        rvRes,
+        sessionsRes,
+        remindersRes,
+        settingsRes,
+        scripturesRes,
+      ] = await Promise.all([
+        supabase.from("profiles").select("*").eq("id", uid).maybeSingle(),
+        supabase
+          .from("people")
+          .select("*")
+          .eq("user_id", uid)
+          .is("archived_at", null)
+          .order("updated_at", { ascending: false }),
+        supabase
+          .from("conversations")
+          .select("*, person:people(*)")
+          .eq("user_id", uid)
+          .order("conversation_date", { ascending: false }),
+        supabase
+          .from("return_visits")
+          .select("*, person:people(*), conversation:conversations(*)")
+          .eq("user_id", uid)
+          .order("scheduled_date", { ascending: true }),
+        supabase
+          .from("ministry_sessions")
+          .select("*")
+          .eq("user_id", uid)
+          .order("start_time", { ascending: false }),
+        supabase
+          .from("reminders")
+          .select("*")
+          .eq("user_id", uid)
+          .is("dismissed_at", null)
+          .order("due_at", { ascending: true }),
+        supabase
+          .from("user_settings")
+          .select("*")
+          .eq("user_id", uid)
+          .maybeSingle(),
+        supabase.from("conversation_scriptures").select("*").eq("user_id", uid),
+      ]);
 
-    const firstError =
-      profileRes.error ||
-      peopleRes.error ||
-      convRes.error ||
-      rvRes.error ||
-      sessionsRes.error ||
-      remindersRes.error ||
-      settingsRes.error ||
-      scripturesRes.error;
+      const firstError =
+        profileRes.error ||
+        peopleRes.error ||
+        convRes.error ||
+        rvRes.error ||
+        sessionsRes.error ||
+        remindersRes.error ||
+        settingsRes.error ||
+        scripturesRes.error;
 
-    if (firstError) {
-      console.error("Supabase load error:", firstError);
-      throw new Error(
-        firstError.message.includes("schema cache") ||
-          firstError.message.includes("does not exist")
-          ? "Database tables not found. Run supabase/migrations/001_initial_schema.sql in the Supabase SQL Editor."
-          : firstError.message
+      if (firstError) {
+        console.error("Supabase load error:", firstError);
+        throw new Error(
+          firstError.message.includes("schema cache") ||
+            firstError.message.includes("does not exist")
+            ? "Database tables not found. Run supabase/migrations/001_initial_schema.sql in the Supabase SQL Editor."
+            : firstError.message
+        );
+      }
+
+      const scriptureByConv =
+        scripturesRes.data?.reduce<
+          Record<string, { id: string; scripture_reference: string }[]>
+        >((acc, s) => {
+          acc[s.conversation_id] = acc[s.conversation_id] || [];
+          acc[s.conversation_id].push({
+            id: s.id,
+            scripture_reference: s.scripture_reference,
+          });
+          return acc;
+        }, {}) ?? {};
+
+      setPeople((peopleRes.data as Person[]) || []);
+      const profile = profileRes.data as Profile | null;
+      const nameFromProfile = sanitizeDisplayName(
+        profile?.display_name,
+        email
       );
-    }
-
-    const scriptureByConv =
-      scripturesRes.data?.reduce<
-        Record<string, { id: string; scripture_reference: string }[]>
-      >((acc, s) => {
-        acc[s.conversation_id] = acc[s.conversation_id] || [];
-        acc[s.conversation_id].push({
-          id: s.id,
-          scripture_reference: s.scripture_reference,
-        });
-        return acc;
-      }, {}) ?? {};
-
-    setPeople((peopleRes.data as Person[]) || []);
-    const profile = profileRes.data as Profile | null;
-    const nameFromProfile = profile?.display_name?.trim() || "";
-    if (nameFromProfile) {
       setDisplayName(nameFromProfile);
       if (typeof window !== "undefined") {
-        localStorage.setItem(DISPLAY_NAME_KEY, nameFromProfile);
+        if (nameFromProfile) {
+          localStorage.setItem(DISPLAY_NAME_KEY, nameFromProfile);
+        } else {
+          localStorage.removeItem(DISPLAY_NAME_KEY);
+        }
       }
-    }
-    setConversations(
-      ((convRes.data as Conversation[]) || []).map((c) => ({
-        ...c,
-        scriptures: (scriptureByConv[c.id] || []).map((s) => ({
-          id: s.id,
-          conversation_id: c.id,
-          user_id: uid,
-          scripture_reference: s.scripture_reference,
-          created_at: "",
-        })),
-      }))
-    );
-    setReturnVisits((rvRes.data as ReturnVisit[]) || []);
-    setSessions((sessionsRes.data as MinistrySession[]) || []);
-    setReminders((remindersRes.data as Reminder[]) || []);
-    setSettings((settingsRes.data as UserSettings) || defaultSettings(uid));
-    setScripturesMap(scriptureByConv);
-  }, []);
+      setConversations(
+        ((convRes.data as Conversation[]) || []).map((c) => ({
+          ...c,
+          scriptures: (scriptureByConv[c.id] || []).map((s) => ({
+            id: s.id,
+            conversation_id: c.id,
+            user_id: uid,
+            scripture_reference: s.scripture_reference,
+            created_at: "",
+          })),
+        }))
+      );
+      setReturnVisits((rvRes.data as ReturnVisit[]) || []);
+      setSessions((sessionsRes.data as MinistrySession[]) || []);
+      setReminders((remindersRes.data as Reminder[]) || []);
+      setSettings((settingsRes.data as UserSettings) || defaultSettings(uid));
+      setScripturesMap(scriptureByConv);
+    },
+    []
+  );
 
   const refresh = useCallback(async () => {
     if (demoMode || isDemoMode()) {
@@ -258,7 +271,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (!user || !isSupabaseConfigured()) return;
-    await refreshFromSupabase(user.id);
+    await refreshFromSupabase(user.id, user.email);
   }, [applyDemo, demoMode, refreshFromSupabase, user]);
 
   useEffect(() => {
@@ -293,7 +306,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         typeof window !== "undefined"
           ? localStorage.getItem(DISPLAY_NAME_KEY) || ""
           : "";
-      if (savedName) setDisplayName(savedName);
+      // Don't seed from localStorage until we know the email (avoids email usernames)
 
       const supabase = createClient();
       const {
@@ -306,8 +319,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       setUser(authUser);
       if (authUser) {
+        const safeSaved = sanitizeDisplayName(savedName, authUser.email);
+        if (safeSaved) setDisplayName(safeSaved);
         try {
-          await refreshFromSupabase(authUser.id);
+          await refreshFromSupabase(authUser.id, authUser.email);
         } catch (err) {
           console.error(err);
         }
@@ -318,9 +333,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         data: { subscription },
       } = supabase.auth.onAuthStateChange(async (event, session) => {
         setUser(session?.user ?? null);
-        if (session?.user && (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION")) {
+        if (
+          session?.user &&
+          (event === "SIGNED_IN" ||
+            event === "TOKEN_REFRESHED" ||
+            event === "INITIAL_SESSION")
+        ) {
           try {
-            await refreshFromSupabase(session.user.id);
+            await refreshFromSupabase(session.user.id, session.user.email);
           } catch (err) {
             console.error(err);
           }
@@ -332,6 +352,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setSessions([]);
           setReminders([]);
           setSettings(null);
+          setDisplayName("");
+          if (typeof window !== "undefined") {
+            localStorage.removeItem(DISPLAY_NAME_KEY);
+          }
         }
       });
 
@@ -344,11 +368,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       cleanup.then((unsub) => unsub?.());
     };
   }, [applyDemo, refreshFromSupabase]);
-
-  const activeSession = useMemo(
-    () => sessions.find((s) => !s.end_time) ?? null,
-    [sessions]
-  );
 
   const enableDemoMode = useCallback(() => {
     persistDemoMode(true);
@@ -384,11 +403,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateDisplayName = useCallback(
     async (name: string) => {
-      const trimmed = name.trim();
+      const trimmed = sanitizeDisplayName(name, user?.email);
+      if (!name.trim()) {
+        throw new Error("Please enter a display name.");
+      }
+      if (!trimmed) {
+        throw new Error(
+          "Please choose a name that is not your email address."
+        );
+      }
       setDisplayName(trimmed);
       if (typeof window !== "undefined") {
-        if (trimmed) localStorage.setItem(DISPLAY_NAME_KEY, trimmed);
-        else localStorage.removeItem(DISPLAY_NAME_KEY);
+        localStorage.setItem(DISPLAY_NAME_KEY, trimmed);
       }
 
       if (demoMode) return;
@@ -397,75 +423,152 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const supabase = createClient();
       await supabase.auth.updateUser({
-        data: { display_name: trimmed || null },
+        data: { display_name: trimmed },
       });
-      const { error } = await supabase
-        .from("profiles")
-        .upsert({
-          id: user.id,
-          display_name: trimmed || null,
-          updated_at: new Date().toISOString(),
-        });
+      const { error } = await supabase.from("profiles").upsert({
+        id: user.id,
+        display_name: trimmed,
+        updated_at: new Date().toISOString(),
+      });
       if (error) throw error;
     },
     [demoMode, user]
   );
 
-  const startSession = useCallback(
-    async (opts?: {
-      ministry_type?: MinistryType;
-      companion?: string;
-      area?: string;
+  const updateEmail = useCallback(
+    async (email: string) => {
+      const trimmed = email.trim();
+      if (!trimmed) throw new Error("Please enter an email address.");
+      if (demoMode) {
+        throw new Error("Email cannot be changed in demo mode.");
+      }
+      if (!user || !isSupabaseConfigured()) {
+        throw new Error("Please sign in again.");
+      }
+      const supabase = createClient();
+      const { error } = await supabase.auth.updateUser({ email: trimmed });
+      if (error) throw error;
+    },
+    [demoMode, user]
+  );
+
+  const updatePassword = useCallback(
+    async (password: string) => {
+      if (!password || password.length < 6) {
+        throw new Error("Password must be at least 6 characters.");
+      }
+      if (demoMode) {
+        throw new Error("Password cannot be changed in demo mode.");
+      }
+      if (!user || !isSupabaseConfigured()) {
+        throw new Error("Please sign in again.");
+      }
+      const supabase = createClient();
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) throw error;
+    },
+    [demoMode, user]
+  );
+
+  const saveDailyMinistryTime = useCallback(
+    async (input: {
+      date?: string;
+      hours: number;
+      minutes: number;
+      notes?: string;
     }) => {
       if (!demoMode && !user) {
-        throw new Error("Please sign in to start a ministry session.");
+        throw new Error("Please sign in to save ministry time.");
       }
+
+      const date = input.date || todayISO();
       const now = new Date().toISOString();
+      const duration = Math.max(0, input.hours * 60 + input.minutes);
+      if (duration <= 0) {
+        throw new Error("Enter at least a few minutes of ministry time.");
+      }
+
+      // Anchor times so duration is End − Start (schema requires start_time).
+      const startIso = new Date(`${date}T09:00:00`).toISOString();
+      const endIso = addMinutes(parseISO(startIso), duration).toISOString();
+      const notes = input.notes?.trim() || null;
+
+      const existing = sessions
+        .filter((s) => s.session_date === date)
+        .sort(
+          (a, b) =>
+            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+        );
+
       if (demoMode) {
         const data = loadDemoData();
-        const session: MinistrySession = {
-          id: crypto.randomUUID(),
+        const keepId = existing[0]?.id || crypto.randomUUID();
+        const row: MinistrySession = {
+          id: keepId,
           user_id: "demo-user",
-          start_time: now,
-          end_time: null,
-          duration_minutes: null,
-          session_date: todayISO(),
-          ministry_type: opts?.ministry_type ?? null,
-          companion: opts?.companion ?? null,
-          area: opts?.area ?? null,
-          personal_reflection: null,
+          start_time: startIso,
+          end_time: endIso,
+          duration_minutes: duration,
+          session_date: date,
+          ministry_type: null,
+          companion: null,
+          area: null,
+          personal_reflection: notes,
           is_demo: true,
-          created_at: now,
+          created_at: existing[0]?.created_at || now,
           updated_at: now,
         };
-        data.sessions = [session, ...data.sessions.filter((s) => s.end_time)];
+        data.sessions = [
+          row,
+          ...data.sessions.filter((s) => s.session_date !== date),
+        ];
         saveDemoData(data);
         applyDemo(data);
-        return session;
+        return row;
       }
 
       const supabase = createClient();
-      // End any dangling open sessions first
-      if (activeSession) {
-        const end = now;
+      const keep = existing[0];
+      const extras = existing.slice(1);
+
+      if (extras.length > 0) {
         await supabase
           .from("ministry_sessions")
+          .delete()
+          .in(
+            "id",
+            extras.map((s) => s.id)
+          );
+      }
+
+      if (keep) {
+        const { data, error } = await supabase
+          .from("ministry_sessions")
           .update({
-            end_time: end,
-            duration_minutes: minutesBetween(activeSession.start_time, end),
+            start_time: startIso,
+            end_time: endIso,
+            duration_minutes: duration,
+            session_date: date,
+            personal_reflection: notes,
+            updated_at: now,
           })
-          .eq("id", activeSession.id);
+          .eq("id", keep.id)
+          .select()
+          .single();
+        if (error) throw error;
+        await refresh();
+        return data as MinistrySession;
       }
 
       const { data, error } = await supabase
         .from("ministry_sessions")
         .insert({
           user_id: user!.id,
-          start_time: now,
-          session_date: todayISO(),
-          ministry_type: opts?.ministry_type ?? null,
-          companion: opts?.companion ?? null,
-          area: opts?.area ?? null,
+          start_time: startIso,
+          end_time: endIso,
+          duration_minutes: duration,
+          session_date: date,
+          personal_reflection: notes,
         })
         .select()
         .single();
@@ -473,68 +576,61 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await refresh();
       return data as MinistrySession;
     },
-    [activeSession, applyDemo, demoMode, refresh, user]
-  );
-
-  const endSession = useCallback(
-    async (reflection?: string) => {
-      if (!activeSession) return;
-      const end = new Date().toISOString();
-      const duration = minutesBetween(activeSession.start_time, end);
-
-      if (demoMode) {
-        const data = loadDemoData();
-        data.sessions = data.sessions.map((s) =>
-          s.id === activeSession.id
-            ? {
-                ...s,
-                end_time: end,
-                duration_minutes: duration,
-                personal_reflection: reflection ?? s.personal_reflection,
-                updated_at: end,
-              }
-            : s
-        );
-        saveDemoData(data);
-        applyDemo(data);
-        return;
-      }
-
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("ministry_sessions")
-        .update({
-          end_time: end,
-          duration_minutes: duration,
-          personal_reflection: reflection ?? null,
-        })
-        .eq("id", activeSession.id);
-      if (error) throw error;
-      await refresh();
-    },
-    [activeSession, applyDemo, demoMode, refresh]
+    [applyDemo, demoMode, refresh, sessions, user]
   );
 
   const updateSession = useCallback(
     async (id: string, patch: Partial<MinistrySession>) => {
+      const now = new Date().toISOString();
+
+      const applyDuration = (
+        current: Pick<MinistrySession, "start_time" | "end_time"> | null,
+        nextPatch: Partial<MinistrySession>
+      ): Partial<MinistrySession> => {
+        const start = nextPatch.start_time ?? current?.start_time;
+        const end =
+          nextPatch.end_time !== undefined
+            ? nextPatch.end_time
+            : current?.end_time ?? null;
+        const out: Partial<MinistrySession> = { ...nextPatch, updated_at: now };
+        if (start) {
+          out.session_date = format(parseISO(start), "yyyy-MM-dd");
+        }
+        if (start && end) {
+          out.duration_minutes = minutesBetween(start, end);
+        } else if (nextPatch.end_time === null) {
+          out.duration_minutes = null;
+        }
+        return out;
+      };
+
       if (demoMode) {
         const data = loadDemoData();
-        data.sessions = data.sessions.map((s) =>
-          s.id === id ? { ...s, ...patch, updated_at: new Date().toISOString() } : s
-        );
+        data.sessions = data.sessions.map((s) => {
+          if (s.id !== id) return s;
+          return { ...s, ...applyDuration(s, patch) };
+        });
         saveDemoData(data);
         applyDemo(data);
         return;
       }
+
       const supabase = createClient();
+      const current = sessions.find((s) => s.id === id) || null;
+      // Prefer patch times so callers can update right after creating a session
+      // before React state has refreshed.
+      const payload = applyDuration(current, patch);
+      if (!payload.start_time && !current?.start_time) {
+        throw new Error("Ministry session not found.");
+      }
       const { error } = await supabase
         .from("ministry_sessions")
-        .update(patch)
+        .update(payload)
         .eq("id", id);
       if (error) throw error;
       await refresh();
     },
-    [applyDemo, demoMode, refresh]
+    [applyDemo, demoMode, refresh, sessions]
   );
 
   const savePerson = useCallback(
@@ -722,7 +818,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           id: crypto.randomUUID(),
           user_id: "demo-user",
           person_id: person.id,
-          session_id: form.session_id || activeSession?.id || null,
+          session_id: form.session_id || null,
           conversation_date: form.conversation_date || todayISO(),
           approximate_time: form.approximate_time || null,
           general_location: form.general_location || null,
@@ -803,8 +899,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       const supabase = createClient();
-      const sessionId =
-        emptyToNull(form.session_id) || activeSession?.id || null;
+      const sessionId = emptyToNull(form.session_id);
       const interest =
         form.interest_level && form.interest_level.length
           ? form.interest_level
@@ -888,7 +983,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         returnVisit,
       };
     },
-    [activeSession, applyDemo, createReturnVisit, demoMode, refresh, savePerson, user]
+    [applyDemo, createReturnVisit, demoMode, refresh, savePerson, user]
   );
 
   const dismissReminder = useCallback(
@@ -964,14 +1059,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     returnVisits,
     sessions,
     reminders,
-    activeSession,
     refresh,
     enableDemoMode,
     disableDemoMode,
     resetDemo,
     updateDisplayName,
-    startSession,
-    endSession,
+    updateEmail,
+    updatePassword,
+    saveDailyMinistryTime,
     updateSession,
     saveConversation,
     savePerson,

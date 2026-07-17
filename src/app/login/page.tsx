@@ -5,10 +5,39 @@ import { useSearchParams } from "next/navigation";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { useApp } from "@/lib/app-context";
 import { Button, Input } from "@/components/ui";
+import { isValidEmailFormat } from "@/lib/auth-errors";
+import type { AuthError } from "@supabase/supabase-js";
+
+const SIGNUP_FALLBACK =
+  "Account creation failed. Check Supabase Auth logs for the underlying error.";
+
+function displayAuthMessage(error: AuthError | null | undefined): string {
+  const raw = typeof error?.message === "string" ? error.message.trim() : "";
+  if (!raw || raw === "{}" || raw === "[object Object]") {
+    return SIGNUP_FALLBACK;
+  }
+  return raw;
+}
+
+function logAuthError(context: string, error: AuthError) {
+  // Never log env values or secrets — only the AuthError fields.
+  console.error(`[MyWitness ${context}]`, error);
+  if (process.env.NODE_ENV === "development") {
+    console.error(`[MyWitness ${context} details]`, {
+      name: error.name,
+      message: error.message,
+      status: error.status,
+      code: error.code,
+      cause: error.cause,
+    });
+    console.error(`[MyWitness ${context} full error object]`, error);
+  }
+}
 
 function LoginForm() {
   const searchParams = useSearchParams();
   const { enableDemoMode } = useApp();
+  const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState<"signin" | "signup">("signin");
@@ -16,14 +45,51 @@ function LoginForm() {
   const [formError, setFormError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const configured = isSupabaseConfigured();
-  const queryError = searchParams.get("error");
+  const queryErrorRaw = searchParams.get("error");
+  const queryError =
+    queryErrorRaw && queryErrorRaw.trim() && queryErrorRaw.trim() !== "{}"
+      ? queryErrorRaw
+      : null;
   const error = formError || queryError;
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!configured) {
       setFormError(
-        "Supabase is not configured. Add keys to .env.local, then restart the app."
+        "Supabase is not configured. Add your project URL and anon key to .env.local, then restart the app."
+      );
+      return;
+    }
+
+    const trimmedName = displayName.trim();
+    if (mode === "signup") {
+      if (!trimmedName) {
+        setFormError("Please enter a display name.");
+        return;
+      }
+      if (trimmedName.includes("@")) {
+        setFormError("Display name cannot be an email address.");
+        return;
+      }
+    }
+
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setFormError("Please enter your email address.");
+      return;
+    }
+    if (!isValidEmailFormat(trimmedEmail)) {
+      setFormError("Please enter a valid email address.");
+      return;
+    }
+    if (!password) {
+      setFormError("Please enter your password.");
+      return;
+    }
+    if (mode === "signup" && password.length < 6) {
+      setFormError(
+        "Password is too weak. Use at least 6 characters (longer is better)."
       );
       return;
     }
@@ -36,32 +102,73 @@ function LoginForm() {
       const supabase = createClient();
 
       if (mode === "signin") {
-        const { data, error: err } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password,
-        });
-        if (err) throw err;
+        const { data, error: signInError } =
+          await supabase.auth.signInWithPassword({
+            email: trimmedEmail,
+            password,
+          });
+
+        if (signInError) {
+          logAuthError("signIn", signInError);
+          setFormError(displayAuthMessage(signInError));
+          return;
+        }
         if (!data.session) {
-          throw new Error("Sign in succeeded but no session was created. Try again.");
+          setFormError(
+            "Please confirm your email before signing in. Check your inbox for the link."
+          );
+          return;
         }
         window.location.assign("/today");
         return;
       }
 
-      const { data, error: err } = await supabase.auth.signUp({
-        email: email.trim(),
+      const { data, error } = await supabase.auth.signUp({
+        email: trimmedEmail,
         password,
         options: {
           emailRedirectTo: `${window.location.origin}/auth/callback`,
           data: {
-            display_name: email.trim().split("@")[0],
+            display_name: trimmedName,
           },
         },
       });
-      if (err) throw err;
+
+      if (error) {
+        logAuthError("signUp", error);
+        setFormError(displayAuthMessage(error));
+        return;
+      }
+
+      // Ensure profile row has the chosen display name when a session exists.
+      // Without a session (email confirm required), the auth trigger stores metadata.
+      if (data.user && data.session) {
+        const { error: profileError } = await supabase.from("profiles").upsert({
+          id: data.user.id,
+          display_name: trimmedName,
+          updated_at: new Date().toISOString(),
+        });
+        if (profileError) {
+          console.error("[MyWitness signup profile]", profileError);
+        }
+        if (typeof window !== "undefined") {
+          localStorage.setItem("mywitness-display-name", trimmedName);
+        }
+      } else if (data.user && typeof window !== "undefined") {
+        localStorage.setItem("mywitness-display-name", trimmedName);
+      }
 
       if (data.session) {
         window.location.assign("/today");
+        return;
+      }
+
+      const identities = data.user?.identities;
+      if (Array.isArray(identities) && identities.length === 0) {
+        setFormError(
+          "An account with this email already exists. Try signing in instead."
+        );
+        setMode("signin");
         return;
       }
 
@@ -70,8 +177,30 @@ function LoginForm() {
       );
       setMode("signin");
     } catch (err) {
+      console.error("[MyWitness auth unexpected]", err);
+      if (process.env.NODE_ENV === "development" && err && typeof err === "object") {
+        const e = err as {
+          name?: string;
+          message?: string;
+          status?: number;
+          code?: string;
+          cause?: unknown;
+        };
+        console.error("[MyWitness auth unexpected details]", {
+          name: e.name,
+          message: e.message,
+          status: e.status,
+          code: e.code,
+          cause: e.cause,
+        });
+      }
       const msg =
-        err instanceof Error ? err.message : "Authentication failed. Please try again.";
+        err instanceof Error &&
+        typeof err.message === "string" &&
+        err.message.trim() &&
+        err.message.trim() !== "{}"
+          ? err.message.trim()
+          : SIGNUP_FALLBACK;
       setFormError(msg);
     } finally {
       setLoading(false);
@@ -100,6 +229,7 @@ function LoginForm() {
 
       <form
         onSubmit={handleAuth}
+        noValidate
         className="mt-10 space-y-4 rounded-3xl bg-white/90 p-5 shadow-sm ring-1 ring-stone-200/70"
       >
         <h1 className="font-display text-xl font-semibold text-stone-900">
@@ -113,6 +243,18 @@ function LoginForm() {
           </p>
         )}
 
+        {mode === "signup" && (
+          <Input
+            label="Display Name"
+            type="text"
+            autoComplete="name"
+            required
+            placeholder="Doreen"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            disabled={!configured || loading}
+          />
+        )}
         <Input
           label="Email"
           type="email"
@@ -134,8 +276,13 @@ function LoginForm() {
         />
 
         {error && (
-          <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">
-            {error}
+          <p
+            role="alert"
+            className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700"
+          >
+            {typeof error === "string" && error.trim() && error.trim() !== "{}"
+              ? error
+              : SIGNUP_FALLBACK}
           </p>
         )}
         {message && (

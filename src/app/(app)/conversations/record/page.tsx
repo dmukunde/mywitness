@@ -33,7 +33,7 @@ type ReviewStep = "summary" | "details";
 function RecordConversationInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { people, saveConversation, activeSession, demoMode, settings } =
+  const { people, saveConversation, demoMode, settings } =
     useApp();
   const personId = searchParams.get("personId") || "";
   const person = people.find((p) => p.id === personId);
@@ -73,35 +73,28 @@ function RecordConversationInner() {
           const saturday = getNextSaturdayAfternoon();
           const extraction: ConversationExtraction = {
             person_name: person?.name || "Joan",
-            conversation_date: todayISO(),
-            approximate_time: "Afternoon",
+            main_discussion_topic: "Why God allows suffering",
+            scriptures_discussed: ["James 1:13", "Revelation 21:3, 4"],
+            questions_raised: ["Does everyone go to heaven?"],
+            proposed_return_visit_date: saturday.date,
+            proposed_return_visit_time: "Afternoon",
+            proposed_return_visit_date_phrase: "next Saturday afternoon",
+            next_planned_topic: "God's Kingdom",
             general_location: person?.general_location || "Near the pharmacy",
-            how_met: "Informal witnessing",
-            main_topic: "Why God allows suffering",
-            scriptures: ["James 1:13", "Revelation 21:3, 4"],
-            questions_asked: "Does everyone go to heaven?",
-            concerns_circumstances: "Recently lost her mother",
-            publications_shared: "",
+            materials_shared: [],
             interest_level: "high",
-            promised_follow_up_date: saturday.date,
-            promised_follow_up_time: "Afternoon",
-            next_topic: "God's Kingdom",
-            action_required: "Prepare scriptures about God's Kingdom",
-            additional_notes: "",
+            additional_notes: "Recently lost her mother",
             summary:
-              "Met Joan near the pharmacy. She recently lost her mother and asked why God allows suffering. We discussed James 1:13 and Revelation 21:3, 4. She also asked whether everyone goes to heaven. A return visit was planned for Saturday afternoon to discuss God's Kingdom.",
-            next_visit_preparation:
-              "Review scriptures about God's Kingdom and gently address her question about heaven.",
-            uncertain_fields: [],
+              "Met Joan near the pharmacy. Discussed Why God allows suffering. Scriptures: James 1:13; Revelation 21:3, 4. Questions raised: Does everyone go to heaven? Promised to return to discuss God's Kingdom.",
           };
-          setUncertainFields(extraction.uncertain_fields);
+          setUncertainFields([]);
           setForm({
             ...EMPTY_CONVERSATION_FORM,
             ...mapExtraction(extraction),
             person_id: personId,
             person_name: extraction.person_name || person?.name || "",
             source: "voice",
-            session_id: activeSession?.id || "",
+            session_id: "",
             transcript:
               "I met Joan near the pharmacy this afternoon. She recently lost her mother and asked why God allows suffering. We discussed James 1:13 and Revelation 21:3 and 4. She also asked whether everyone goes to heaven. I said I would return next Saturday afternoon to discuss God's Kingdom.",
             keep_audio: settings?.keep_audio_after_transcription ?? false,
@@ -115,6 +108,11 @@ function RecordConversationInner() {
         const fd = new FormData();
         fd.append("audio", blob, `conversation-${Date.now()}.webm`);
         if (personId) fd.append("personId", personId);
+        fd.append("localDate", todayISO());
+        fd.append(
+          "timezone",
+          Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+        );
 
         setStatus("transcribing");
         const res = await fetch("/api/transcribe", { method: "POST", body: fd });
@@ -130,14 +128,14 @@ function RecordConversationInner() {
         };
 
         setAudioPath(data.audioPath || "");
-        setUncertainFields(data.extraction.uncertain_fields || []);
+        setUncertainFields([]);
         setForm({
           ...EMPTY_CONVERSATION_FORM,
           ...mapExtraction(data.extraction),
           person_id: personId,
           person_name: data.extraction.person_name || person?.name || "",
           source: "voice",
-          session_id: activeSession?.id || "",
+          session_id: "",
           transcript: data.transcript,
           audio_path: data.audioPath || "",
           keep_audio: settings?.keep_audio_after_transcription ?? false,
@@ -150,7 +148,6 @@ function RecordConversationInner() {
       }
     };
   }, [
-    activeSession?.id,
     demoMode,
     person,
     personId,
@@ -251,32 +248,42 @@ function RecordConversationInner() {
             uncertain={uncertainFields.includes("person_name")}
           />
           <SummaryRow
+            label="Location"
+            value={form.general_location}
+            uncertain={uncertainFields.includes("general_location")}
+          />
+          <SummaryRow
             label="Main discussion topic"
             value={form.main_topic}
-            uncertain={uncertainFields.includes("main_topic")}
+            uncertain={uncertainFields.includes("main_discussion_topic")}
           />
           <SummaryRow
             label="Scriptures discussed"
             value={form.scriptures}
-            uncertain={uncertainFields.includes("scriptures")}
+            uncertain={uncertainFields.includes("scriptures_discussed")}
           />
           <SummaryRow
             label="Questions raised"
             value={form.questions_asked}
-            uncertain={uncertainFields.includes("questions_asked")}
+            uncertain={uncertainFields.includes("questions_raised")}
+          />
+          <SummaryRow
+            label="Materials shared"
+            value={form.publications_shared}
+            uncertain={uncertainFields.includes("materials_shared")}
           />
           <SummaryRow
             label="Proposed return visit"
             value={returnVisitLabel}
             uncertain={
-              uncertainFields.includes("promised_follow_up_date") ||
-              uncertainFields.includes("promised_follow_up_time")
+              uncertainFields.includes("proposed_return_visit_date") ||
+              uncertainFields.includes("proposed_return_visit_time")
             }
           />
           <SummaryRow
             label="Next planned topic"
             value={form.next_topic}
-            uncertain={uncertainFields.includes("next_topic")}
+            uncertain={uncertainFields.includes("next_planned_topic")}
           />
         </Card>
 
@@ -467,28 +474,35 @@ function SummaryRow({
   );
 }
 
+/** Map canonical extraction keys → form / DB field names. */
 function mapExtraction(
   extraction: ConversationExtraction
 ): Partial<ConversationFormData> {
+  const interest = extraction.interest_level;
+  const interestLevel =
+    interest === "unknown" ||
+    interest === "low" ||
+    interest === "moderate" ||
+    interest === "high" ||
+    interest === "very_high"
+      ? interest
+      : "";
+
   return {
     person_name: extraction.person_name,
-    conversation_date: extraction.conversation_date || todayISO(),
-    approximate_time: extraction.approximate_time,
+    conversation_date: todayISO(),
     general_location: extraction.general_location,
-    how_met: extraction.how_met,
-    main_topic: extraction.main_topic,
-    scriptures: scripturesToString(extraction.scriptures || []),
-    questions_asked: extraction.questions_asked,
-    concerns_circumstances: extraction.concerns_circumstances,
-    publications_shared: extraction.publications_shared,
-    interest_level: extraction.interest_level || "",
-    promised_follow_up_date: extraction.promised_follow_up_date,
-    promised_follow_up_time: extraction.promised_follow_up_time,
-    next_topic: extraction.next_topic,
-    action_required: extraction.action_required,
+    main_topic: extraction.main_discussion_topic,
+    scriptures: scripturesToString(extraction.scriptures_discussed || []),
+    questions_asked: (extraction.questions_raised || []).join("; "),
+    publications_shared: (extraction.materials_shared || []).join("; "),
+    interest_level: interestLevel,
+    promised_follow_up_date: extraction.proposed_return_visit_date || "",
+    promised_follow_up_time: extraction.proposed_return_visit_time || "",
+    next_topic: extraction.next_planned_topic,
     additional_notes: extraction.additional_notes,
     summary: extraction.summary,
-    next_visit_preparation: extraction.next_visit_preparation,
+    schedule_return_visit: Boolean(extraction.proposed_return_visit_date),
   };
 }
 

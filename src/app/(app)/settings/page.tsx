@@ -12,8 +12,7 @@ import {
   SectionTitle,
 } from "@/components/ui";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
-import { MINISTRY_TYPE_LABELS, type MinistryType } from "@/lib/types";
-import { minutesBetween, todayISO } from "@/lib/utils";
+import { todayISO } from "@/lib/utils";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -24,15 +23,14 @@ export default function SettingsPage() {
     sessions,
     updateSettings,
     updateDisplayName,
+    updateEmail,
+    updatePassword,
+    saveDailyMinistryTime,
     displayName,
     enableDemoMode,
     disableDemoMode,
     resetDemo,
     signOut,
-    startSession,
-    endSession,
-    updateSession,
-    activeSession,
     people,
     conversations,
     returnVisits,
@@ -41,13 +39,18 @@ export default function SettingsPage() {
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
-  const [manualStart, setManualStart] = useState("");
-  const [manualEnd, setManualEnd] = useState("");
-  const [manualType, setManualType] = useState<MinistryType | "">("");
+  const [manualHours, setManualHours] = useState(0);
+  const [manualMinutes, setManualMinutes] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const [emailDraft, setEmailDraft] = useState<string | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [savingName, setSavingName] = useState(false);
+  const [savingEmail, setSavingEmail] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
   const nameValue = nameDraft ?? displayName;
+  const emailValue = emailDraft ?? user?.email ?? "";
 
   const exportData = () => {
     const payload = {
@@ -90,23 +93,20 @@ export default function SettingsPage() {
   };
 
   const saveManualSession = async () => {
-    if (!manualStart || !manualEnd) return;
-    const start = new Date(manualStart).toISOString();
-    const end = new Date(manualEnd).toISOString();
-    const duration = minutesBetween(start, end);
-    if (activeSession) await endSession();
-    const session = await startSession({
-      ministry_type: manualType || undefined,
-    });
-    await updateSession(session.id, {
-      start_time: start,
-      end_time: end,
-      duration_minutes: duration,
-      session_date: start.slice(0, 10),
-      ministry_type: manualType || null,
-    });
-    setManualOpen(false);
-    setMessage("Manual ministry time saved.");
+    try {
+      await saveDailyMinistryTime({
+        hours: manualHours,
+        minutes: manualMinutes,
+      });
+      setManualOpen(false);
+      setManualHours(0);
+      setManualMinutes(0);
+      setMessage("Ministry time saved.");
+    } catch (err) {
+      setMessage(
+        err instanceof Error ? err.message : "Could not save ministry time."
+      );
+    }
   };
 
   const deleteAccount = async () => {
@@ -138,43 +138,156 @@ export default function SettingsPage() {
       <Card className="space-y-1">
         <p className="text-sm text-stone-500">Signed in as</p>
         <p className="font-medium text-stone-900">
-          {demoMode ? "Demo account" : user?.email || "—"}
+          {demoMode
+            ? "Demo account"
+            : displayName || user?.email || "—"}
         </p>
+        {!demoMode && displayName && user?.email && (
+          <p className="text-xs text-stone-500">{user.email}</p>
+        )}
       </Card>
 
       <section>
         <SectionTitle title="Profile" />
-        <Card className="space-y-3">
-          <Input
-            label="Preferred display name"
-            placeholder="Doreen"
-            value={nameValue}
-            onChange={(e) => setNameDraft(e.target.value)}
-          />
-          <p className="text-xs text-stone-500">
-            Used in your greeting, for example “Good afternoon, Doreen.”
-          </p>
-          <Button
-            variant="secondary"
-            className="w-full"
-            disabled={savingName || nameValue.trim() === displayName.trim()}
-            onClick={async () => {
-              setSavingName(true);
-              try {
-                await updateDisplayName(nameValue);
-                setNameDraft(null);
-                setMessage("Display name saved.");
-              } catch (err) {
-                setMessage(
-                  err instanceof Error ? err.message : "Could not save name."
-                );
-              } finally {
-                setSavingName(false);
+        <Card className="space-y-4">
+          <div className="space-y-3">
+            <Input
+              label="Display Name"
+              placeholder="Doreen"
+              value={nameValue}
+              onChange={(e) => setNameDraft(e.target.value)}
+              disabled={demoMode}
+            />
+            <p className="text-xs text-stone-500">
+              Used in your greeting, for example “Good afternoon, Doreen.”
+            </p>
+            <Button
+              variant="secondary"
+              className="w-full"
+              disabled={
+                demoMode ||
+                savingName ||
+                nameValue.trim() === displayName.trim() ||
+                !nameValue.trim()
               }
-            }}
-          >
-            {savingName ? "Saving…" : "Save display name"}
-          </Button>
+              onClick={async () => {
+                setSavingName(true);
+                setMessage(null);
+                try {
+                  await updateDisplayName(nameValue);
+                  setNameDraft(null);
+                  setMessage("Display name saved.");
+                } catch (err) {
+                  setMessage(
+                    err instanceof Error ? err.message : "Could not save name."
+                  );
+                } finally {
+                  setSavingName(false);
+                }
+              }}
+            >
+              {savingName ? "Saving…" : "Save display name"}
+            </Button>
+          </div>
+
+          <div className="border-t border-stone-100 pt-4 space-y-3">
+            <Input
+              label="Email"
+              type="email"
+              autoComplete="email"
+              value={emailValue}
+              onChange={(e) => setEmailDraft(e.target.value)}
+              disabled={demoMode}
+            />
+            <p className="text-xs text-stone-500">
+              Used only for signing in. You may need to confirm the new address
+              by email.
+            </p>
+            <Button
+              variant="secondary"
+              className="w-full"
+              disabled={
+                demoMode ||
+                savingEmail ||
+                emailValue.trim() === (user?.email || "").trim() ||
+                !emailValue.trim()
+              }
+              onClick={async () => {
+                setSavingEmail(true);
+                setMessage(null);
+                try {
+                  await updateEmail(emailValue);
+                  setEmailDraft(null);
+                  setMessage(
+                    "Check your inbox to confirm the new email address."
+                  );
+                } catch (err) {
+                  setMessage(
+                    err instanceof Error ? err.message : "Could not update email."
+                  );
+                } finally {
+                  setSavingEmail(false);
+                }
+              }}
+            >
+              {savingEmail ? "Saving…" : "Change email"}
+            </Button>
+          </div>
+
+          <div className="border-t border-stone-100 pt-4 space-y-3">
+            <Input
+              label="New password"
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              disabled={demoMode}
+              minLength={6}
+            />
+            <Input
+              label="Confirm new password"
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              disabled={demoMode}
+              minLength={6}
+            />
+            <Button
+              variant="secondary"
+              className="w-full"
+              disabled={
+                demoMode ||
+                savingPassword ||
+                !newPassword ||
+                newPassword !== confirmPassword
+              }
+              onClick={async () => {
+                if (newPassword !== confirmPassword) {
+                  setMessage("Passwords do not match.");
+                  return;
+                }
+                setSavingPassword(true);
+                setMessage(null);
+                try {
+                  await updatePassword(newPassword);
+                  setNewPassword("");
+                  setConfirmPassword("");
+                  setMessage("Password updated.");
+                } catch (err) {
+                  setMessage(
+                    err instanceof Error
+                      ? err.message
+                      : "Could not update password."
+                  );
+                } finally {
+                  setSavingPassword(false);
+                }
+              }}
+            >
+              {savingPassword ? "Saving…" : "Change password"}
+            </Button>
+          </div>
         </Card>
       </section>
 
@@ -238,52 +351,43 @@ export default function SettingsPage() {
         <SectionTitle title="Ministry time" />
         <Card className="space-y-2">
           <p className="text-sm text-stone-600">
-            Add or correct ministry time manually.
+            Log or correct today&apos;s ministry time. Prefer Add/Edit on the
+            Today screen.
           </p>
           <Button
             variant="secondary"
             className="w-full"
             onClick={() => setManualOpen((v) => !v)}
           >
-            Manual time entry
+            Enter hours &amp; minutes
           </Button>
           {manualOpen && (
             <div className="space-y-3 pt-2">
-              <Input
-                label="Start"
-                type="datetime-local"
-                value={manualStart}
-                onChange={(e) => setManualStart(e.target.value)}
-              />
-              <Input
-                label="End"
-                type="datetime-local"
-                value={manualEnd}
-                onChange={(e) => setManualEnd(e.target.value)}
-              />
-              <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-stone-700">
-                  Ministry type
-                </span>
-                <select
-                  className="w-full rounded-xl border border-stone-200 bg-white px-3.5 py-3"
-                  value={manualType}
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  label="Hours"
+                  type="number"
+                  min={0}
+                  value={manualHours}
                   onChange={(e) =>
-                    setManualType(e.target.value as MinistryType | "")
+                    setManualHours(Math.max(0, Number(e.target.value) || 0))
                   }
-                >
-                  <option value="">Optional</option>
-                  {(Object.keys(MINISTRY_TYPE_LABELS) as MinistryType[]).map(
-                    (k) => (
-                      <option key={k} value={k}>
-                        {MINISTRY_TYPE_LABELS[k]}
-                      </option>
+                />
+                <Input
+                  label="Minutes"
+                  type="number"
+                  min={0}
+                  max={59}
+                  value={manualMinutes}
+                  onChange={(e) =>
+                    setManualMinutes(
+                      Math.min(59, Math.max(0, Number(e.target.value) || 0))
                     )
-                  )}
-                </select>
-              </label>
-              <Button className="w-full" onClick={saveManualSession}>
-                Save manual session
+                  }
+                />
+              </div>
+              <Button className="w-full" onClick={() => void saveManualSession()}>
+                Save ministry time
               </Button>
             </div>
           )}

@@ -171,7 +171,7 @@ export function SectionTitle({
 }) {
   return (
     <div className="mb-3 flex items-center justify-between gap-2">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">
+      <h2 className="text-xs font-medium uppercase tracking-wide text-stone-400">
         {title}
       </h2>
       {action}

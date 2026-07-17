@@ -3,17 +3,16 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Mic, NotebookPen, Square, Play } from "lucide-react";
+import { Mic, NotebookPen } from "lucide-react";
 import { useApp } from "@/lib/app-context";
-import { useElapsedTimer } from "@/hooks/useElapsedTimer";
 import {
   Badge,
   Button,
   Card,
   EmptyState,
   SectionTitle,
-  ConfirmDialog,
 } from "@/components/ui";
+import { MinistryTimeEditor } from "@/components/MinistryTimeEditor";
 import {
   formatDisplayDate,
   formatFullDate,
@@ -21,6 +20,7 @@ import {
   greetingForNow,
   interestColor,
   todayISO,
+  minutesBetween,
 } from "@/lib/utils";
 import { INTEREST_LABELS } from "@/lib/types";
 import { Suspense } from "react";
@@ -33,19 +33,12 @@ function TodayInner() {
     conversations,
     returnVisits,
     sessions,
-    activeSession,
-    startSession,
-    endSession,
     reminders,
     dismissReminder,
     displayName,
+    saveDailyMinistryTime,
   } = useApp();
-  const { label: timerLabel, elapsedMs } = useElapsedTimer(
-    activeSession?.start_time
-  );
-  const [ending, setEnding] = useState(false);
-  const [starting, setStarting] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
   const [dismissedBanner, setDismissedBanner] = useState(false);
   const today = todayISO();
 
@@ -53,11 +46,6 @@ function TodayInner() {
     !dismissedBanner && searchParams.get("saved") === "1"
       ? "Conversation saved. Your return visit is on the dashboard."
       : null;
-  const endedBanner =
-    !dismissedBanner && searchParams.get("ended") === "1"
-      ? "Ministry session ended. Time saved."
-      : null;
-  const success = savedBanner || endedBanner;
 
   const dueToday = useMemo(
     () =>
@@ -80,64 +68,70 @@ function TodayInner() {
     [conversations, today]
   );
 
-  const ministryMinutesToday = useMemo(() => {
-    return sessions
-      .filter((s) => s.session_date === today)
-      .reduce((sum, s) => {
-        if (s.duration_minutes) return sum + s.duration_minutes;
-        if (!s.end_time && s.id === activeSession?.id) {
-          return sum + Math.floor(elapsedMs / 60000);
-        }
-        return sum;
-      }, 0);
-  }, [sessions, today, activeSession, elapsedMs]);
+  const primaryTodaySession = useMemo(() => {
+    return (
+      sessions
+        .filter((s) => s.session_date === today)
+        .sort(
+          (a, b) =>
+            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+        )[0] || null
+    );
+  }, [sessions, today]);
 
-  const handleStart = async () => {
-    setStarting(true);
-    setActionError(null);
-    try {
-      await startSession({ ministry_type: "informal_witnessing" });
-    } catch (err) {
-      setActionError(
-        err instanceof Error
-          ? err.message
-          : "Could not start session. Check that the database migration was run."
-      );
-    } finally {
-      setStarting(false);
+  const todaysMinistryMinutes = useMemo(() => {
+    if (!primaryTodaySession) return 0;
+    if (primaryTodaySession.duration_minutes != null) {
+      return primaryTodaySession.duration_minutes;
     }
-  };
-
-  const handleEnd = async () => {
-    setActionError(null);
-    try {
-      await endSession();
-      setEnding(false);
-      router.replace("/today?ended=1");
-    } catch (err) {
-      setEnding(false);
-      setActionError(
-        err instanceof Error ? err.message : "Could not end session."
+    if (primaryTodaySession.end_time) {
+      return minutesBetween(
+        primaryTodaySession.start_time,
+        primaryTodaySession.end_time
       );
     }
-  };
+    return 0;
+  }, [primaryTodaySession]);
+
+  const hasMinistryTime = todaysMinistryMinutes > 0;
+  const conversationLabel =
+    todaysConversations.length === 1
+      ? "1 conversation recorded"
+      : `${todaysConversations.length} conversations recorded`;
 
   return (
-    <div className="space-y-6 animate-fade-up">
+    <div className="space-y-8 animate-fade-up">
       <header>
-        <p className="text-sm font-medium tracking-wide text-teal-800/80">
+        <p
+          className="font-display font-bold tracking-tight text-teal-900"
+          style={{ fontSize: 32, lineHeight: 1.15 }}
+        >
           MyWitness
         </p>
-        <p className="text-xs text-stone-500">Personal Ministry Companion</p>
-        <p className="mt-3 text-sm text-stone-500">{formatFullDate(new Date())}</p>
-        <h1 className="mt-1 font-display text-3xl font-semibold text-stone-900">
+        <p
+          className="mt-1 font-medium text-stone-500"
+          style={{ fontSize: 16, lineHeight: 1.4 }}
+        >
+          Personal Ministry Companion
+        </p>
+        <div
+          className="mt-6 border-t border-stone-200/80 pt-5"
+          aria-hidden="true"
+        />
+        <p className="text-stone-500" style={{ fontSize: 18, lineHeight: 1.4 }}>
+          {formatFullDate(new Date())}
+        </p>
+        <p
+          className="mt-2 font-semibold tracking-tight text-stone-800"
+          style={{ fontSize: 24, lineHeight: 1.3 }}
+        >
           {greetingForNow(displayName)}
-        </h1>
+        </p>
       </header>
 
-      {success && (
+      {savedBanner && (
         <div className="rounded-2xl bg-teal-50 px-4 py-3 text-sm text-teal-900 ring-1 ring-teal-100">
-          {success}
+          {savedBanner}
           <button
             className="ml-2 text-teal-700 underline"
             onClick={() => {
@@ -149,50 +143,37 @@ function TodayInner() {
           </button>
         </div>
       )}
-      {actionError && (
-        <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-800 ring-1 ring-rose-100">
-          {actionError}
-        </div>
-      )}
 
-      <Card className="bg-gradient-to-br from-teal-800 to-emerald-700 text-white ring-0">
-        {activeSession ? (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-teal-100">Ministry session active</p>
-                <p className="mt-1 font-display text-4xl font-semibold tracking-tight">
-                  {timerLabel}
-                </p>
-              </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/15">
-                <Play className="h-5 w-5 fill-current" />
-              </div>
-            </div>
-            <Button
-              variant="secondary"
-              className="w-full bg-white text-teal-900 hover:bg-teal-50"
-              onClick={() => setEnding(true)}
-            >
-              <Square className="h-4 w-4" />
-              End Session
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <p className="text-sm text-teal-100">Ready when you are</p>
-            <p className="font-display text-2xl font-semibold">
-              Start a ministry session
+      <Card>
+        <p className="text-sm font-medium text-stone-500">Today&apos;s Ministry</p>
+        {!hasMinistryTime ? (
+          <>
+            <p className="mt-3 text-sm text-stone-500">Time spent today</p>
+            <p className="mt-1 font-display text-2xl font-semibold text-stone-800">
+              {formatDuration(0)}
             </p>
             <Button
               variant="secondary"
-              className="w-full bg-white text-teal-900 hover:bg-teal-50"
-              disabled={starting}
-              onClick={handleStart}
+              className="mt-4 w-full"
+              onClick={() => setEditOpen(true)}
             >
-              {starting ? "Starting…" : "Start Ministry Session"}
+              Add ministry time
             </Button>
-          </div>
+          </>
+        ) : (
+          <>
+            <p className="mt-2 font-display text-2xl font-semibold text-teal-800">
+              {formatDuration(todaysMinistryMinutes)}
+            </p>
+            <p className="mt-1 text-sm text-stone-500">{conversationLabel}</p>
+            <Button
+              variant="secondary"
+              className="mt-4 w-full"
+              onClick={() => setEditOpen(true)}
+            >
+              Edit time
+            </Button>
+          </>
         )}
       </Card>
 
@@ -215,22 +196,6 @@ function TodayInner() {
           Write Notes
         </Button>
       </div>
-
-      <Card
-        className="cursor-pointer"
-        onClick={() => router.push("/activity")}
-      >
-        <p className="text-sm text-stone-500">Ministry time today</p>
-        <p className="mt-1 font-display text-3xl font-semibold text-teal-900">
-          {formatDuration(ministryMinutesToday)}
-        </p>
-        <p className="mt-1 text-sm text-stone-500">
-          {todaysConversations.length}{" "}
-          {todaysConversations.length === 1 ? "conversation" : "conversations"}{" "}
-          recorded
-        </p>
-        <p className="mt-2 text-xs font-medium text-teal-800">View activity →</p>
-      </Card>
 
       {reminders.length > 0 && (
         <section>
@@ -366,13 +331,15 @@ function TodayInner() {
         )}
       </section>
 
-      <ConfirmDialog
-        open={ending}
-        title="End ministry session?"
-        message="Your session time will be saved. You can still add conversations later."
-        confirmLabel="End session"
-        onConfirm={handleEnd}
-        onCancel={() => setEnding(false)}
+      <MinistryTimeEditor
+        open={editOpen}
+        initialDate={today}
+        initialMinutes={todaysMinistryMinutes}
+        initialNotes={primaryTodaySession?.personal_reflection || ""}
+        onClose={() => setEditOpen(false)}
+        onSave={async (input) => {
+          await saveDailyMinistryTime(input);
+        }}
       />
     </div>
   );

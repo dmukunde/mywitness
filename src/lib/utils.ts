@@ -30,10 +30,28 @@ export function formatTime(date: string | Date) {
 }
 
 export function formatDuration(minutes: number) {
-  if (minutes < 60) return `${minutes}m`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  const total = Math.max(0, Math.round(minutes));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${h}h ${String(m).padStart(2, "0")}m`;
+}
+
+/** Clock time for ministry display, e.g. 09:00 */
+export function formatClockTime(date: string | Date) {
+  const d = typeof date === "string" ? parseISO(date) : date;
+  return format(d, "HH:mm");
+}
+
+/** datetime-local input value from an ISO timestamp */
+export function toDatetimeLocalValue(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = parseISO(iso);
+  return format(d, "yyyy-MM-dd'T'HH:mm");
+}
+
+/** ISO string from a datetime-local value */
+export function fromDatetimeLocalValue(value: string): string {
+  return new Date(value).toISOString();
 }
 
 export function formatDurationFromMs(ms: number) {
@@ -53,6 +71,22 @@ export function greetingForNow(name?: string | null) {
     hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const trimmed = name?.trim();
   return trimmed ? `${greet}, ${trimmed}.` : `${greet}.`;
+}
+
+/**
+ * Prefer an explicit display name. Never treat the email local-part
+ * (or a full email) as a person's name.
+ */
+export function sanitizeDisplayName(
+  name: string | null | undefined,
+  email?: string | null
+): string {
+  const trimmed = name?.trim() || "";
+  if (!trimmed) return "";
+  if (trimmed.includes("@")) return "";
+  const local = email?.split("@")[0]?.trim().toLowerCase();
+  if (local && trimmed.toLowerCase() === local) return "";
+  return trimmed;
 }
 
 export function relativeDate(date: string) {

@@ -11,7 +11,7 @@ import { todayISO } from "@/lib/utils";
 function NewConversationInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { people, saveConversation, activeSession } = useApp();
+  const { people, saveConversation } = useApp();
   const personId = searchParams.get("personId") || "";
   const person = people.find((p) => p.id === personId);
 
@@ -22,7 +22,7 @@ function NewConversationInner() {
     conversation_date: todayISO(),
     general_location: person?.general_location || "",
     source: "manual",
-    session_id: activeSession?.id || "",
+    session_id: "",
   };
 
   const onSubmit = async (form: ConversationFormData) => {
