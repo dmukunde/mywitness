@@ -40,7 +40,7 @@ export function ConversationForm({
   ) => setForm((prev) => ({ ...prev, [key]: value }));
 
   const hint = (field: string) =>
-    uncertainFields.includes(field) ? "Please confirm — AI was uncertain" : undefined;
+    uncertainFields.includes(field) ? "Please confirm." : undefined;
 
   const handleSave = async (schedule: boolean) => {
     if (!form.person_name.trim() && !form.person_id) {
@@ -50,6 +50,9 @@ export function ConversationForm({
     setSaving(true);
     setError(null);
     try {
+      // Always schedule when a follow-up date exists (core ministry workflow)
+      const shouldSchedule =
+        schedule || Boolean(form.promised_follow_up_date.trim());
       await onSubmit(
         {
           ...form,
@@ -57,9 +60,9 @@ export function ConversationForm({
             form.person_name ||
             people.find((p) => p.id === form.person_id)?.name ||
             "",
-          schedule_return_visit: schedule,
+          schedule_return_visit: shouldSchedule,
         },
-        schedule
+        shouldSchedule
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save.");
@@ -268,18 +271,24 @@ export function ConversationForm({
         <Button
           className="w-full"
           disabled={saving}
-          onClick={() => handleSave(false)}
+          onClick={() => handleSave(Boolean(form.promised_follow_up_date.trim()))}
         >
-          {saving ? "Saving…" : submitLabel}
+          {saving
+            ? "Saving…"
+            : form.promised_follow_up_date
+              ? "Save & schedule return visit"
+              : submitLabel}
         </Button>
-        <Button
-          variant="secondary"
-          className="w-full"
-          disabled={saving || !form.promised_follow_up_date}
-          onClick={() => handleSave(true)}
-        >
-          Save and schedule return visit
-        </Button>
+        {form.promised_follow_up_date && (
+          <Button
+            variant="secondary"
+            className="w-full"
+            disabled={saving}
+            onClick={() => handleSave(false)}
+          >
+            Save without scheduling
+          </Button>
+        )}
         <Button variant="ghost" className="w-full" disabled={saving} onClick={onCancel}>
           Cancel
         </Button>

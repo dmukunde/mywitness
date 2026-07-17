@@ -1,6 +1,7 @@
 "use client";
 
 import { BottomNav } from "@/components/BottomNav";
+import { DisplayNamePrompt } from "@/components/DisplayNamePrompt";
 import { useApp } from "@/lib/app-context";
 import { useReminders } from "@/hooks/useReminders";
 import { useRouter } from "next/navigation";
@@ -28,7 +29,10 @@ export default function AppShellLayout({
       <div className="flex min-h-dvh items-center justify-center">
         <div className="text-center">
           <p className="font-display text-2xl text-teal-900">MyWitness</p>
-          <p className="mt-2 text-sm text-stone-500">Loading…</p>
+          <p className="mt-1 text-sm text-stone-500">
+            Personal Ministry Companion
+          </p>
+          <p className="mt-3 text-sm text-stone-400">Loading…</p>
         </div>
       </div>
     );
@@ -47,6 +51,7 @@ export default function AppShellLayout({
       )}
       <main className="flex-1 px-4 pb-24 pt-4">{children}</main>
       <BottomNav />
+      <DisplayNamePrompt />
     </div>
   );
 }

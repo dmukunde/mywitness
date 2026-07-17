@@ -43,6 +43,6 @@ export async function GET() {
     ministry_sessions: sessions.data,
     reminders: reminders.data,
     disclaimer:
-      "This is an independent personal organization tool. It is not affiliated with or endorsed by Jehovah’s Witnesses or any of their legal entities.",
+      "MyWitness is an independent personal organization tool designed to help individuals organize ministry notes, conversations, and return visits. It is not affiliated with, endorsed by, or produced by Jehovah’s Witnesses or any of their legal entities.",
   });
 }

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Mic, NotebookPen, Square, Play } from "lucide-react";
 import { useApp } from "@/lib/app-context";
 import { useElapsedTimer } from "@/hooks/useElapsedTimer";
@@ -22,10 +23,12 @@ import {
   todayISO,
 } from "@/lib/utils";
 import { INTEREST_LABELS } from "@/lib/types";
+import { Suspense } from "react";
 
-export default function TodayPage() {
+function TodayInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const {
-    user,
     people,
     conversations,
     returnVisits,
@@ -35,18 +38,26 @@ export default function TodayPage() {
     endSession,
     reminders,
     dismissReminder,
+    displayName,
   } = useApp();
   const { label: timerLabel, elapsedMs } = useElapsedTimer(
     activeSession?.start_time
   );
   const [ending, setEnding] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [dismissedBanner, setDismissedBanner] = useState(false);
   const today = todayISO();
 
-  const displayName =
-    (user?.user_metadata?.display_name as string | undefined) ||
-    user?.email?.split("@")[0] ||
-    null;
+  const savedBanner =
+    !dismissedBanner && searchParams.get("saved") === "1"
+      ? "Conversation saved. Your return visit is on the dashboard."
+      : null;
+  const endedBanner =
+    !dismissedBanner && searchParams.get("ended") === "1"
+      ? "Ministry session ended. Time saved."
+      : null;
+  const success = savedBanner || endedBanner;
 
   const dueToday = useMemo(
     () =>
@@ -59,12 +70,8 @@ export default function TodayPage() {
   const upcoming = useMemo(
     () =>
       returnVisits
-        .filter(
-          (rv) =>
-            rv.status === "planned" &&
-            rv.scheduled_date > today
-        )
-        .slice(0, 3),
+        .filter((rv) => rv.status === "planned" && rv.scheduled_date > today)
+        .slice(0, 5),
     [returnVisits, today]
   );
 
@@ -87,26 +94,66 @@ export default function TodayPage() {
 
   const handleStart = async () => {
     setStarting(true);
+    setActionError(null);
     try {
       await startSession({ ministry_type: "informal_witnessing" });
+    } catch (err) {
+      setActionError(
+        err instanceof Error
+          ? err.message
+          : "Could not start session. Check that the database migration was run."
+      );
     } finally {
       setStarting(false);
     }
   };
 
   const handleEnd = async () => {
-    await endSession();
-    setEnding(false);
+    setActionError(null);
+    try {
+      await endSession();
+      setEnding(false);
+      router.replace("/today?ended=1");
+    } catch (err) {
+      setEnding(false);
+      setActionError(
+        err instanceof Error ? err.message : "Could not end session."
+      );
+    }
   };
 
   return (
     <div className="space-y-6 animate-fade-up">
       <header>
-        <p className="text-sm text-stone-500">{formatFullDate(new Date())}</p>
+        <p className="text-sm font-medium tracking-wide text-teal-800/80">
+          MyWitness
+        </p>
+        <p className="text-xs text-stone-500">Personal Ministry Companion</p>
+        <p className="mt-3 text-sm text-stone-500">{formatFullDate(new Date())}</p>
         <h1 className="mt-1 font-display text-3xl font-semibold text-stone-900">
           {greetingForNow(displayName)}
         </h1>
       </header>
+
+      {success && (
+        <div className="rounded-2xl bg-teal-50 px-4 py-3 text-sm text-teal-900 ring-1 ring-teal-100">
+          {success}
+          <button
+            className="ml-2 text-teal-700 underline"
+            onClick={() => {
+              setDismissedBanner(true);
+              router.replace("/today", { scroll: false });
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+      {actionError && (
+        <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-800 ring-1 ring-rose-100">
+          {actionError}
+        </div>
+      )}
 
       <Card className="bg-gradient-to-br from-teal-800 to-emerald-700 text-white ring-0">
         {activeSession ? (
@@ -150,21 +197,29 @@ export default function TodayPage() {
       </Card>
 
       <div className="space-y-3">
-        <Link href="/conversations/record" className="block">
-          <Button variant="record" size="lg" className="w-full text-lg">
-            <Mic className="h-6 w-6" />
-            Record Conversation
-          </Button>
-        </Link>
-        <Link href="/conversations/new" className="block">
-          <Button variant="secondary" className="w-full">
-            <NotebookPen className="h-5 w-5" />
-            Add Conversation
-          </Button>
-        </Link>
+        <Button
+          variant="record"
+          size="lg"
+          className="w-full text-lg"
+          onClick={() => router.push("/conversations/record")}
+        >
+          <Mic className="h-6 w-6" />
+          Record Conversation
+        </Button>
+        <Button
+          variant="secondary"
+          className="w-full"
+          onClick={() => router.push("/conversations/new")}
+        >
+          <NotebookPen className="h-5 w-5" />
+          Write Notes
+        </Button>
       </div>
 
-      <Card>
+      <Card
+        className="cursor-pointer"
+        onClick={() => router.push("/activity")}
+      >
         <p className="text-sm text-stone-500">Ministry time today</p>
         <p className="mt-1 font-display text-3xl font-semibold text-teal-900">
           {formatDuration(ministryMinutesToday)}
@@ -174,6 +229,7 @@ export default function TodayPage() {
           {todaysConversations.length === 1 ? "conversation" : "conversations"}{" "}
           recorded
         </p>
+        <p className="mt-2 text-xs font-medium text-teal-800">View activity →</p>
       </Card>
 
       {reminders.length > 0 && (
@@ -181,7 +237,17 @@ export default function TodayPage() {
           <SectionTitle title="Reminders" />
           <div className="space-y-2">
             {reminders.slice(0, 3).map((r) => (
-              <Card key={r.id} className="flex items-start justify-between gap-3">
+              <Card
+                key={r.id}
+                className="flex items-start justify-between gap-3"
+                onClick={() => {
+                  if (r.return_visit_id) {
+                    router.push(`/return-visits/${r.return_visit_id}`);
+                  } else {
+                    router.push("/return-visits");
+                  }
+                }}
+              >
                 <div>
                   <p className="font-medium text-stone-900">{r.title}</p>
                   {r.body && (
@@ -189,8 +255,12 @@ export default function TodayPage() {
                   )}
                 </div>
                 <button
-                  className="text-xs text-teal-800"
-                  onClick={() => dismissReminder(r.id)}
+                  type="button"
+                  className="shrink-0 text-xs text-teal-800"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void dismissReminder(r.id);
+                  }}
                 >
                   Dismiss
                 </button>
@@ -305,5 +375,13 @@ export default function TodayPage() {
         onCancel={() => setEnding(false)}
       />
     </div>
+  );
+}
+
+export default function TodayPage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-stone-500">Loading…</p>}>
+      <TodayInner />
+    </Suspense>
   );
 }

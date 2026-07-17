@@ -22,21 +22,27 @@ import {
   type ConversationFormData,
 } from "@/lib/types";
 import {
+  formatDisplayDate,
   getNextSaturdayAfternoon,
   scripturesToString,
   todayISO,
 } from "@/lib/utils";
 
+type ReviewStep = "summary" | "details";
+
 function RecordConversationInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { people, saveConversation, activeSession, demoMode } = useApp();
+  const { people, saveConversation, activeSession, demoMode, settings } =
+    useApp();
   const personId = searchParams.get("personId") || "";
   const person = people.find((p) => p.id === personId);
 
   const [form, setForm] = useState<ConversationFormData | null>(null);
   const [uncertainFields, setUncertainFields] = useState<string[]>([]);
   const [audioPath, setAudioPath] = useState("");
+  const [reviewStep, setReviewStep] = useState<ReviewStep>("summary");
+  const [saving, setSaving] = useState(false);
   const processRef = useRef<(blob: Blob) => Promise<void>>(async () => {});
 
   const {
@@ -98,8 +104,9 @@ function RecordConversationInner() {
             session_id: activeSession?.id || "",
             transcript:
               "I met Joan near the pharmacy this afternoon. She recently lost her mother and asked why God allows suffering. We discussed James 1:13 and Revelation 21:3 and 4. She also asked whether everyone goes to heaven. I said I would return next Saturday afternoon to discuss God's Kingdom.",
-            keep_audio: false,
+            keep_audio: settings?.keep_audio_after_transcription ?? false,
           });
+          setReviewStep("summary");
           setStatus("complete");
           return;
         }
@@ -133,8 +140,9 @@ function RecordConversationInner() {
           session_id: activeSession?.id || "",
           transcript: data.transcript,
           audio_path: data.audioPath || "",
-          keep_audio: false,
+          keep_audio: settings?.keep_audio_after_transcription ?? false,
         });
+        setReviewStep("summary");
         setStatus("complete");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong.");
@@ -148,26 +156,56 @@ function RecordConversationInner() {
     personId,
     setError,
     setStatus,
+    settings?.keep_audio_after_transcription,
   ]);
 
+  const resetRecording = () => {
+    setForm(null);
+    setAudioPath("");
+    setUncertainFields([]);
+    setReviewStep("summary");
+    setStatus("idle");
+    setError(null);
+  };
+
   const onSubmit = async (data: ConversationFormData) => {
-    const result = await saveConversation({
-      ...data,
-      audio_path: audioPath || data.audio_path,
-    });
-    const rvId = searchParams.get("returnVisitId");
-    if (rvId) {
-      router.replace(`/return-visits/${rvId}`);
-    } else {
-      router.replace(`/people/${result.person.id}`);
+    setSaving(true);
+    try {
+      await saveConversation({
+        ...data,
+        audio_path: audioPath || data.audio_path,
+      });
+      const rvId = searchParams.get("returnVisitId");
+      if (rvId) {
+        router.replace(`/return-visits/${rvId}`);
+      } else {
+        router.replace(`/today?saved=1`);
+      }
+    } catch (err) {
+      setSaving(false);
+      throw err;
     }
   };
 
-  if (form && status === "complete") {
+  const saveFromSummary = async () => {
+    if (!form) return;
+    setSaving(true);
+    try {
+      await onSubmit({
+        ...form,
+        schedule_return_visit: Boolean(form.promised_follow_up_date.trim()),
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save.");
+      setSaving(false);
+    }
+  };
+
+  if (form && status === "complete" && reviewStep === "details") {
     return (
       <div className="animate-fade-up">
         <PageHeader
-          title="Review conversation"
+          title="Review details"
           subtitle="Edit anything before saving"
         />
         <ConversationForm
@@ -175,11 +213,104 @@ function RecordConversationInner() {
           people={people}
           uncertainFields={uncertainFields}
           onSubmit={onSubmit}
-          onCancel={() => {
-            setForm(null);
-            setStatus("idle");
-          }}
+          onCancel={() => setReviewStep("summary")}
         />
+      </div>
+    );
+  }
+
+  if (form && status === "complete" && reviewStep === "summary") {
+    const returnVisitLabel = form.promised_follow_up_date
+      ? `${formatDisplayDate(form.promised_follow_up_date)}${
+          form.promised_follow_up_time ? ` · ${form.promised_follow_up_time}` : ""
+        }`
+      : "";
+
+    return (
+      <div className="animate-fade-up space-y-5">
+        <PageHeader
+          title="Conversation summary"
+          subtitle="Confirm the highlights, then review or save"
+        />
+
+        {form.summary && (
+          <Card className="bg-teal-50/80 ring-teal-100">
+            <p className="text-xs font-semibold uppercase tracking-wide text-teal-800">
+              Summary
+            </p>
+            <p className="mt-2 text-sm leading-relaxed text-stone-800">
+              {form.summary}
+            </p>
+          </Card>
+        )}
+
+        <Card className="space-y-3">
+          <SummaryRow
+            label="Person’s name"
+            value={form.person_name}
+            uncertain={uncertainFields.includes("person_name")}
+          />
+          <SummaryRow
+            label="Main discussion topic"
+            value={form.main_topic}
+            uncertain={uncertainFields.includes("main_topic")}
+          />
+          <SummaryRow
+            label="Scriptures discussed"
+            value={form.scriptures}
+            uncertain={uncertainFields.includes("scriptures")}
+          />
+          <SummaryRow
+            label="Questions raised"
+            value={form.questions_asked}
+            uncertain={uncertainFields.includes("questions_asked")}
+          />
+          <SummaryRow
+            label="Proposed return visit"
+            value={returnVisitLabel}
+            uncertain={
+              uncertainFields.includes("promised_follow_up_date") ||
+              uncertainFields.includes("promised_follow_up_time")
+            }
+          />
+          <SummaryRow
+            label="Next planned topic"
+            value={form.next_topic}
+            uncertain={uncertainFields.includes("next_topic")}
+          />
+        </Card>
+
+        {error && (
+          <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {error}
+          </p>
+        )}
+
+        <div className="space-y-2">
+          <Button
+            className="w-full"
+            disabled={saving}
+            onClick={() => setReviewStep("details")}
+          >
+            Review details
+          </Button>
+          <Button
+            variant="secondary"
+            className="w-full"
+            disabled={saving}
+            onClick={() => void saveFromSummary()}
+          >
+            {saving ? "Saving…" : "Save conversation"}
+          </Button>
+          <Button
+            variant="ghost"
+            className="w-full"
+            disabled={saving}
+            onClick={resetRecording}
+          >
+            Re-record
+          </Button>
+        </div>
       </div>
     );
   }
@@ -241,7 +372,9 @@ function RecordConversationInner() {
               variant="secondary"
               className="w-full"
               onClick={() => {
-                void processRef.current(new Blob(["demo"], { type: "audio/webm" }));
+                void processRef.current(
+                  new Blob(["demo"], { type: "audio/webm" })
+                );
               }}
             >
               Use Joan sample extraction
@@ -299,6 +432,37 @@ function RecordConversationInner() {
       <p className="text-center text-xs text-stone-400">
         Recordings up to 10 minutes. Nothing is saved until you confirm.
       </p>
+    </div>
+  );
+}
+
+function SummaryRow({
+  label,
+  value,
+  uncertain,
+}: {
+  label: string;
+  value?: string | null;
+  uncertain?: boolean;
+}) {
+  const empty = !value?.trim();
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">
+        {label}
+      </p>
+      <p className="mt-1 text-sm text-stone-800">
+        {empty ? (
+          <span className="text-stone-400">
+            {uncertain ? "Please confirm." : "—"}
+          </span>
+        ) : (
+          value
+        )}
+      </p>
+      {!empty && uncertain && (
+        <p className="mt-0.5 text-xs text-amber-700">Please confirm.</p>
+      )}
     </div>
   );
 }

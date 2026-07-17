@@ -12,19 +12,29 @@ export function Card({
   className?: string;
   onClick?: () => void;
 }) {
-  const Comp = onClick ? "button" : "div";
   return (
-    <Comp
-      type={onClick ? "button" : undefined}
+    <div
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
       onClick={onClick}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
       className={cn(
         "w-full rounded-2xl bg-white/90 p-4 text-left shadow-sm ring-1 ring-stone-200/60 backdrop-blur",
-        onClick && "active:scale-[0.99] transition-transform",
+        onClick && "cursor-pointer active:scale-[0.99] transition-transform",
         className
       )}
     >
       {children}
-    </Comp>
+    </div>
   );
 }
 

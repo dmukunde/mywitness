@@ -5,6 +5,13 @@ export function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
+/** Convert empty strings to null for UUID / optional DB fields */
+export function emptyToNull(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+
 export function formatDisplayDate(date: string | Date) {
   const d = typeof date === "string" ? parseISO(date) : date;
   if (isToday(d)) return "Today";
@@ -44,7 +51,8 @@ export function greetingForNow(name?: string | null) {
   const hour = new Date().getHours();
   const greet =
     hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-  return name ? `${greet}, ${name}` : greet;
+  const trimmed = name?.trim();
+  return trimmed ? `${greet}, ${trimmed}.` : `${greet}.`;
 }
 
 export function relativeDate(date: string) {

@@ -23,6 +23,8 @@ export default function SettingsPage() {
     settings,
     sessions,
     updateSettings,
+    updateDisplayName,
+    displayName,
     enableDemoMode,
     disableDemoMode,
     resetDemo,
@@ -43,6 +45,9 @@ export default function SettingsPage() {
   const [manualEnd, setManualEnd] = useState("");
   const [manualType, setManualType] = useState<MinistryType | "">("");
   const [message, setMessage] = useState<string | null>(null);
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const [savingName, setSavingName] = useState(false);
+  const nameValue = nameDraft ?? displayName;
 
   const exportData = () => {
     const payload = {
@@ -55,7 +60,7 @@ export default function SettingsPage() {
       reminders,
       settings,
       disclaimer:
-        "This is an independent personal organization tool. It is not affiliated with or endorsed by Jehovah’s Witnesses or any of their legal entities.",
+        "MyWitness is an independent personal organization tool designed to help individuals organize ministry notes, conversations, and return visits. It is not affiliated with, endorsed by, or produced by Jehovah’s Witnesses or any of their legal entities.",
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
       type: "application/json",
@@ -133,9 +138,45 @@ export default function SettingsPage() {
       <Card className="space-y-1">
         <p className="text-sm text-stone-500">Signed in as</p>
         <p className="font-medium text-stone-900">
-          {demoMode ? "Demo publisher" : user?.email || "—"}
+          {demoMode ? "Demo account" : user?.email || "—"}
         </p>
       </Card>
+
+      <section>
+        <SectionTitle title="Profile" />
+        <Card className="space-y-3">
+          <Input
+            label="Preferred display name"
+            placeholder="Doreen"
+            value={nameValue}
+            onChange={(e) => setNameDraft(e.target.value)}
+          />
+          <p className="text-xs text-stone-500">
+            Used in your greeting, for example “Good afternoon, Doreen.”
+          </p>
+          <Button
+            variant="secondary"
+            className="w-full"
+            disabled={savingName || nameValue.trim() === displayName.trim()}
+            onClick={async () => {
+              setSavingName(true);
+              try {
+                await updateDisplayName(nameValue);
+                setNameDraft(null);
+                setMessage("Display name saved.");
+              } catch (err) {
+                setMessage(
+                  err instanceof Error ? err.message : "Could not save name."
+                );
+              } finally {
+                setSavingName(false);
+              }
+            }}
+          >
+            {savingName ? "Saving…" : "Save display name"}
+          </Button>
+        </Card>
+      </section>
 
       <section>
         <SectionTitle title="Reminders" />
@@ -337,10 +378,19 @@ export default function SettingsPage() {
         </p>
       )}
 
-      <Card className="bg-stone-50 text-xs leading-relaxed text-stone-500 ring-stone-200">
-        This is an independent personal organization tool. It is not affiliated
-        with or endorsed by Jehovah’s Witnesses or any of their legal entities.
-      </Card>
+      <section>
+        <SectionTitle title="About" />
+        <Card className="bg-stone-50 text-xs leading-relaxed text-stone-500 ring-stone-200">
+          <p className="font-medium text-stone-600">MyWitness</p>
+          <p className="mt-0.5 text-stone-500">Personal Ministry Companion</p>
+          <p className="mt-3">
+            MyWitness is an independent personal organization tool designed to
+            help individuals organize ministry notes, conversations, and return
+            visits. It is not affiliated with, endorsed by, or produced by
+            Jehovah’s Witnesses or any of their legal entities.
+          </p>
+        </Card>
+      </section>
 
       <ConfirmDialog
         open={deleteOpen}

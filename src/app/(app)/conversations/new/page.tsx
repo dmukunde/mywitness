@@ -26,15 +26,15 @@ function NewConversationInner() {
   };
 
   const onSubmit = async (form: ConversationFormData) => {
-    const result = await saveConversation(form);
-    router.replace(`/people/${result.person.id}`);
+    await saveConversation(form);
+    router.replace("/today?saved=1");
   };
 
   return (
     <div className="animate-fade-up">
       <PageHeader
-        title="Add Conversation"
-        subtitle="Write notes manually"
+        title="Write Notes"
+        subtitle="Type conversation notes manually"
       />
       <ConversationForm
         initial={initial}

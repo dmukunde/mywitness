@@ -25,16 +25,20 @@ import type {
   MinistrySession,
   MinistryType,
   Person,
+  Profile,
   Reminder,
   ReturnVisit,
   UserSettings,
 } from "@/lib/types";
-import { minutesBetween, parseScriptures, todayISO } from "@/lib/utils";
+import { emptyToNull, minutesBetween, parseScriptures, todayISO } from "@/lib/utils";
+
+const DISPLAY_NAME_KEY = "mywitness-display-name";
 
 interface AppContextValue {
   user: User | null;
   loading: boolean;
   demoMode: boolean;
+  displayName: string;
   settings: UserSettings | null;
   people: Person[];
   conversations: Conversation[];
@@ -46,6 +50,7 @@ interface AppContextValue {
   enableDemoMode: () => void;
   disableDemoMode: () => void;
   resetDemo: () => void;
+  updateDisplayName: (name: string) => Promise<void>;
   startSession: (opts?: {
     ministry_type?: MinistryType;
     companion?: string;
@@ -90,6 +95,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [demoMode, setDemoModeState] = useState(false);
+  const [displayName, setDisplayName] = useState("");
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [people, setPeople] = useState<Person[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -144,6 +150,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const refreshFromSupabase = useCallback(async (uid: string) => {
     const supabase = createClient();
     const [
+      profileRes,
       peopleRes,
       convRes,
       rvRes,
@@ -152,6 +159,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       settingsRes,
       scripturesRes,
     ] = await Promise.all([
+      supabase.from("profiles").select("*").eq("id", uid).maybeSingle(),
       supabase
         .from("people")
         .select("*")
@@ -183,6 +191,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
       supabase.from("conversation_scriptures").select("*").eq("user_id", uid),
     ]);
 
+    const firstError =
+      profileRes.error ||
+      peopleRes.error ||
+      convRes.error ||
+      rvRes.error ||
+      sessionsRes.error ||
+      remindersRes.error ||
+      settingsRes.error ||
+      scripturesRes.error;
+
+    if (firstError) {
+      console.error("Supabase load error:", firstError);
+      throw new Error(
+        firstError.message.includes("schema cache") ||
+          firstError.message.includes("does not exist")
+          ? "Database tables not found. Run supabase/migrations/001_initial_schema.sql in the Supabase SQL Editor."
+          : firstError.message
+      );
+    }
+
     const scriptureByConv =
       scripturesRes.data?.reduce<
         Record<string, { id: string; scripture_reference: string }[]>
@@ -196,6 +224,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }, {}) ?? {};
 
     setPeople((peopleRes.data as Person[]) || []);
+    const profile = profileRes.data as Profile | null;
+    const nameFromProfile = profile?.display_name?.trim() || "";
+    if (nameFromProfile) {
+      setDisplayName(nameFromProfile);
+      if (typeof window !== "undefined") {
+        localStorage.setItem(DISPLAY_NAME_KEY, nameFromProfile);
+      }
+    }
     setConversations(
       ((convRes.data as Conversation[]) || []).map((c) => ({
         ...c,
@@ -238,9 +274,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           email: "demo@mywitness.app",
           aud: "authenticated",
           app_metadata: {},
-          user_metadata: { display_name: "Publisher" },
+          user_metadata: { display_name: "Doreen" },
           created_at: new Date().toISOString(),
         } as User);
+        setDisplayName("Doreen");
         applyDemo(loadDemoData());
         setSettings(defaultSettings("demo-user"));
         setLoading(false);
@@ -252,23 +289,49 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      const savedName =
+        typeof window !== "undefined"
+          ? localStorage.getItem(DISPLAY_NAME_KEY) || ""
+          : "";
+      if (savedName) setDisplayName(savedName);
+
       const supabase = createClient();
       const {
         data: { user: authUser },
+        error: authError,
       } = await supabase.auth.getUser();
       if (!mounted) return;
+      if (authError) {
+        console.error(authError);
+      }
       setUser(authUser);
       if (authUser) {
-        await refreshFromSupabase(authUser.id);
+        try {
+          await refreshFromSupabase(authUser.id);
+        } catch (err) {
+          console.error(err);
+        }
       }
       setLoading(false);
 
       const {
         data: { subscription },
-      } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      } = supabase.auth.onAuthStateChange(async (event, session) => {
         setUser(session?.user ?? null);
-        if (session?.user) {
-          await refreshFromSupabase(session.user.id);
+        if (session?.user && (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION")) {
+          try {
+            await refreshFromSupabase(session.user.id);
+          } catch (err) {
+            console.error(err);
+          }
+        }
+        if (event === "SIGNED_OUT") {
+          setPeople([]);
+          setConversations([]);
+          setReturnVisits([]);
+          setSessions([]);
+          setReminders([]);
+          setSettings(null);
         }
       });
 
@@ -295,9 +358,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       email: "demo@mywitness.app",
       aud: "authenticated",
       app_metadata: {},
-      user_metadata: { display_name: "Publisher" },
+      user_metadata: { display_name: "Doreen" },
       created_at: new Date().toISOString(),
     } as User);
+    setDisplayName("Doreen");
     applyDemo(loadDemoData());
     setSettings(defaultSettings("demo-user"));
   }, [applyDemo]);
@@ -306,6 +370,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     persistDemoMode(false);
     setDemoModeState(false);
     setUser(null);
+    setDisplayName("");
     setPeople([]);
     setConversations([]);
     setReturnVisits([]);
@@ -317,12 +382,44 @@ export function AppProvider({ children }: { children: ReactNode }) {
     applyDemo(resetDemoData());
   }, [applyDemo]);
 
+  const updateDisplayName = useCallback(
+    async (name: string) => {
+      const trimmed = name.trim();
+      setDisplayName(trimmed);
+      if (typeof window !== "undefined") {
+        if (trimmed) localStorage.setItem(DISPLAY_NAME_KEY, trimmed);
+        else localStorage.removeItem(DISPLAY_NAME_KEY);
+      }
+
+      if (demoMode) return;
+
+      if (!user || !isSupabaseConfigured()) return;
+
+      const supabase = createClient();
+      await supabase.auth.updateUser({
+        data: { display_name: trimmed || null },
+      });
+      const { error } = await supabase
+        .from("profiles")
+        .upsert({
+          id: user.id,
+          display_name: trimmed || null,
+          updated_at: new Date().toISOString(),
+        });
+      if (error) throw error;
+    },
+    [demoMode, user]
+  );
+
   const startSession = useCallback(
     async (opts?: {
       ministry_type?: MinistryType;
       companion?: string;
       area?: string;
     }) => {
+      if (!demoMode && !user) {
+        throw new Error("Please sign in to start a ministry session.");
+      }
       const now = new Date().toISOString();
       if (demoMode) {
         const data = loadDemoData();
@@ -706,60 +803,71 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       const supabase = createClient();
+      const sessionId =
+        emptyToNull(form.session_id) || activeSession?.id || null;
+      const interest =
+        form.interest_level && form.interest_level.length
+          ? form.interest_level
+          : null;
+
       const { data: conversation, error } = await supabase
         .from("conversations")
         .insert({
           user_id: user!.id,
           person_id: person.id,
-          session_id: form.session_id || activeSession?.id || null,
+          session_id: sessionId,
           conversation_date: form.conversation_date || todayISO(),
-          approximate_time: form.approximate_time || null,
-          general_location: form.general_location || null,
-          how_met: form.how_met || null,
-          main_topic: form.main_topic || null,
-          questions_asked: form.questions_asked || null,
-          concerns_circumstances: form.concerns_circumstances || null,
-          publications_shared: form.publications_shared || null,
-          interest_level: form.interest_level || null,
-          promised_follow_up_date: form.promised_follow_up_date || null,
-          promised_follow_up_time: form.promised_follow_up_time || null,
-          next_topic: form.next_topic || null,
-          action_required: form.action_required || null,
-          additional_notes: form.additional_notes || null,
-          summary: form.summary || null,
-          next_visit_preparation: form.next_visit_preparation || null,
+          approximate_time: emptyToNull(form.approximate_time),
+          general_location: emptyToNull(form.general_location),
+          how_met: emptyToNull(form.how_met),
+          main_topic: emptyToNull(form.main_topic),
+          questions_asked: emptyToNull(form.questions_asked),
+          concerns_circumstances: emptyToNull(form.concerns_circumstances),
+          publications_shared: emptyToNull(form.publications_shared),
+          interest_level: interest,
+          promised_follow_up_date: emptyToNull(form.promised_follow_up_date),
+          promised_follow_up_time: emptyToNull(form.promised_follow_up_time),
+          next_topic: emptyToNull(form.next_topic),
+          action_required: emptyToNull(form.action_required),
+          additional_notes: emptyToNull(form.additional_notes),
+          summary: emptyToNull(form.summary),
+          next_visit_preparation: emptyToNull(form.next_visit_preparation),
           source: form.source,
-          audio_path: form.audio_path || null,
+          audio_path: emptyToNull(form.audio_path),
           keep_audio: form.keep_audio,
-          transcript: form.transcript || null,
+          transcript: emptyToNull(form.transcript),
         })
         .select()
         .single();
       if (error) throw error;
 
       if (scriptureList.length) {
-        await supabase.from("conversation_scriptures").insert(
-          scriptureList.map((ref) => ({
-            conversation_id: conversation.id,
-            user_id: user!.id,
-            scripture_reference: ref,
-          }))
-        );
+        const { error: scriptureError } = await supabase
+          .from("conversation_scriptures")
+          .insert(
+            scriptureList.map((ref) => ({
+              conversation_id: conversation.id,
+              user_id: user!.id,
+              scripture_reference: ref,
+            }))
+          );
+        if (scriptureError) throw scriptureError;
       }
 
+      // Schedule return visit when the form requests it
       let returnVisit: ReturnVisit | undefined;
       if (form.schedule_return_visit && form.promised_follow_up_date) {
         returnVisit = await createReturnVisit({
           person_id: person.id,
           conversation_id: conversation.id,
           scheduled_date: form.promised_follow_up_date,
-          scheduled_time: form.promised_follow_up_time || null,
+          scheduled_time: emptyToNull(form.promised_follow_up_time),
           status: "planned",
-          last_topic: form.main_topic || null,
-          question_to_answer: form.questions_asked || null,
-          next_planned_topic: form.next_topic || null,
-          general_location: form.general_location || null,
-          preparation_notes: form.next_visit_preparation || null,
+          last_topic: emptyToNull(form.main_topic),
+          question_to_answer: emptyToNull(form.questions_asked),
+          next_planned_topic: emptyToNull(form.next_topic),
+          general_location: emptyToNull(form.general_location),
+          preparation_notes: emptyToNull(form.next_visit_preparation),
           completed_at: null,
         });
       }
@@ -840,6 +948,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     user,
     loading,
     demoMode,
+    displayName,
     settings,
     people,
     conversations: conversations.map((c) => ({
@@ -860,6 +969,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     enableDemoMode,
     disableDemoMode,
     resetDemo,
+    updateDisplayName,
     startSession,
     endSession,
     updateSession,

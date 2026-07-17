@@ -1,63 +1,86 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { useApp } from "@/lib/app-context";
 import { Button, Input } from "@/components/ui";
 
-export default function LoginPage() {
+function LoginForm() {
+  const searchParams = useSearchParams();
   const { enableDemoMode } = useApp();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const configured = isSupabaseConfigured();
+  const queryError = searchParams.get("error");
+  const error = formError || queryError;
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!configured) {
-      setError("Supabase is not configured. Use demo mode or add env variables.");
+      setFormError(
+        "Supabase is not configured. Add keys to .env.local, then restart the app."
+      );
       return;
     }
-    setLoading(true);
-    setError(null);
-    setMessage(null);
-    const supabase = createClient();
 
-    if (mode === "signin") {
-      const { error: err } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      setLoading(false);
-      if (err) {
-        setError(err.message);
+    setLoading(true);
+    setFormError(null);
+    setMessage(null);
+
+    try {
+      const supabase = createClient();
+
+      if (mode === "signin") {
+        const { data, error: err } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+        if (err) throw err;
+        if (!data.session) {
+          throw new Error("Sign in succeeded but no session was created. Try again.");
+        }
+        window.location.assign("/today");
         return;
       }
-      window.location.href = "/today";
-      return;
-    }
 
-    const { error: err } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
-    setLoading(false);
-    if (err) {
-      setError(err.message);
-      return;
+      const { data, error: err } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+          data: {
+            display_name: email.trim().split("@")[0],
+          },
+        },
+      });
+      if (err) throw err;
+
+      if (data.session) {
+        window.location.assign("/today");
+        return;
+      }
+
+      setMessage(
+        "Account created. Check your email to confirm, then sign in. (In Supabase you can disable email confirmation under Authentication → Providers → Email for faster local use.)"
+      );
+      setMode("signin");
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Authentication failed. Please try again.";
+      setFormError(msg);
+    } finally {
+      setLoading(false);
     }
-    setMessage("Check your email to confirm your account, then sign in.");
   };
 
   const startDemo = () => {
     enableDemoMode();
-    window.location.href = "/today";
+    window.location.assign("/today");
   };
 
   return (
@@ -66,9 +89,12 @@ export default function LoginPage() {
         <p className="font-display text-4xl font-semibold tracking-tight text-teal-900">
           MyWitness
         </p>
+        <p className="mt-1 text-base font-medium text-teal-800/90">
+          Personal Ministry Companion
+        </p>
         <p className="mt-3 max-w-sm text-base leading-relaxed text-stone-600">
-          Your private ministry companion — record conversations, prepare return
-          visits, and remember what matters.
+          Record conversations, prepare return visits, and remember what
+          matters — privately, on your own device.
         </p>
       </div>
 
@@ -80,6 +106,13 @@ export default function LoginPage() {
           {mode === "signin" ? "Sign in" : "Create account"}
         </h1>
 
+        {!configured && (
+          <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            Supabase keys are missing or still placeholders. Update{" "}
+            <code>.env.local</code> and restart.
+          </p>
+        )}
+
         <Input
           label="Email"
           type="email"
@@ -87,7 +120,7 @@ export default function LoginPage() {
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          disabled={!configured}
+          disabled={!configured || loading}
         />
         <Input
           label="Password"
@@ -97,7 +130,7 @@ export default function LoginPage() {
           minLength={6}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          disabled={!configured}
+          disabled={!configured || loading}
         />
 
         {error && (
@@ -122,9 +155,11 @@ export default function LoginPage() {
         <button
           type="button"
           className="w-full text-center text-sm text-teal-800"
-          onClick={() =>
-            setMode((m) => (m === "signin" ? "signup" : "signin"))
-          }
+          onClick={() => {
+            setMode((m) => (m === "signin" ? "signup" : "signin"));
+            setFormError(null);
+            setMessage(null);
+          }}
         >
           {mode === "signin"
             ? "Need an account? Sign up"
@@ -136,12 +171,24 @@ export default function LoginPage() {
         <Button variant="secondary" className="w-full" onClick={startDemo}>
           Try with demo data
         </Button>
-        {!configured && (
-          <p className="text-center text-xs text-stone-500">
-            Add Supabase keys to <code>.env.local</code> for real accounts.
-          </p>
-        )}
+        <p className="text-center text-xs text-stone-500">
+          Demo mode is for exploring the UI only. Use a real account for ministry.
+        </p>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-dvh items-center justify-center text-sm text-stone-500">
+          Loading…
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   );
 }

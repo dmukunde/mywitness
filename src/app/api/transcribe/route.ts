@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, isOpenAIConfigured } from "@/lib/supabase/server";
 import {
   EXTRACTION_SYSTEM_PROMPT,
   extractionSchema,
@@ -12,13 +12,17 @@ export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
-    const openaiKey = process.env.OPENAI_API_KEY;
-    if (!openaiKey) {
+    if (!isOpenAIConfigured()) {
       return NextResponse.json(
-        { error: "OPENAI_API_KEY is not configured on the server." },
+        {
+          error:
+            "OPENAI_API_KEY is missing or still a placeholder. Add a real key in .env.local (and Vercel), then restart.",
+        },
         { status: 500 }
       );
     }
+
+    const openaiKey = process.env.OPENAI_API_KEY!.trim();
 
     const supabase = await createClient();
     const {
@@ -26,7 +30,10 @@ export async function POST(request: Request) {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Please sign in again to record conversations." },
+        { status: 401 }
+      );
     }
 
     const formData = await request.formData();

@@ -16,11 +16,15 @@ const literata = Literata({
 export const metadata: Metadata = {
   title: "MyWitness",
   description:
-    "A private personal ministry companion for recording conversations, return visits, and ministry time.",
+    "Personal Ministry Companion — privately organize ministry notes, conversations, and return visits.",
   appleWebApp: {
     capable: true,
     title: "MyWitness",
     statusBarStyle: "default",
+  },
+  icons: {
+    icon: "/icon.png",
+    apple: "/apple-touch-icon.png",
   },
 };
 

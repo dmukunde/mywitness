@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, isOpenAIConfigured } from "@/lib/supabase/server";
 import {
   EXTRACTION_SYSTEM_PROMPT,
   extractionSchema,
@@ -9,13 +9,16 @@ import { format } from "date-fns";
 
 export async function POST(request: Request) {
   try {
-    const openaiKey = process.env.OPENAI_API_KEY;
-    if (!openaiKey) {
+    if (!isOpenAIConfigured()) {
       return NextResponse.json(
-        { error: "OPENAI_API_KEY is not configured on the server." },
+        {
+          error:
+            "OPENAI_API_KEY is missing or still a placeholder. Add a real key in .env.local (and Vercel), then restart.",
+        },
         { status: 500 }
       );
     }
+    const openaiKey = process.env.OPENAI_API_KEY!.trim();
 
     const supabase = await createClient();
     const {
