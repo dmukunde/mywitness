@@ -1,6 +1,10 @@
 "use client";
 
-import { createDemoData, type DemoData } from "./demo-data";
+import {
+  createDemoData,
+  normalizeDemoData,
+  type DemoData,
+} from "./demo-data";
 
 const STORAGE_KEY = "mywitness-demo-data";
 const DEMO_FLAG_KEY = "mywitness-demo-mode";
@@ -32,7 +36,11 @@ export function loadDemoData(): DemoData {
     return data;
   }
   try {
-    return JSON.parse(raw) as DemoData;
+    const parsed = JSON.parse(raw) as Partial<DemoData>;
+    const normalized = normalizeDemoData(parsed);
+    // Persist upgrade so Bible Studies fields stick around
+    saveDemoData(normalized);
+    return normalized;
   } catch {
     const data = createDemoData();
     saveDemoData(data);

@@ -19,6 +19,10 @@ import {
 } from "@/lib/demo-store";
 import type { DemoData } from "@/lib/demo-data";
 import type {
+  BibleStudy,
+  BibleStudyFormData,
+  BibleStudySession,
+  BibleStudySessionFormData,
   Conversation,
   ConversationFormData,
   MinistrySession,
@@ -26,9 +30,19 @@ import type {
   Profile,
   Reminder,
   ReturnVisit,
+  ScheduledMinistryEvent,
   UserSettings,
 } from "@/lib/types";
 import { emptyToNull, minutesBetween, parseScriptures, sanitizeDisplayName, todayISO } from "@/lib/utils";
+import {
+  saveBibleStudyDemo,
+  saveBibleStudyRemote,
+  saveStudySessionDemo,
+  saveStudySessionRemote,
+  syncReturnVisitEventDemo,
+  upsertReturnVisitEventSupabase,
+} from "@/lib/ministry-api";
+import { findDuplicateMinistryEvent } from "@/lib/ministry-scheduling";
 import { addMinutes, format, parseISO } from "date-fns";
 
 const DISPLAY_NAME_KEY = "mywitness-display-name";
@@ -44,6 +58,9 @@ interface AppContextValue {
   returnVisits: ReturnVisit[];
   sessions: MinistrySession[];
   reminders: Reminder[];
+  bibleStudies: BibleStudy[];
+  studySessions: BibleStudySession[];
+  ministryEvents: ScheduledMinistryEvent[];
   refresh: () => Promise<void>;
   enableDemoMode: () => void;
   disableDemoMode: () => void;
@@ -72,8 +89,27 @@ interface AppContextValue {
     patch: Partial<ReturnVisit>
   ) => Promise<void>;
   createReturnVisit: (
-    visit: Omit<ReturnVisit, "id" | "user_id" | "created_at" | "updated_at" | "is_demo">
+    visit: Omit<ReturnVisit, "id" | "user_id" | "created_at" | "updated_at" | "is_demo">,
+    opts?: { allowDuplicate?: boolean }
   ) => Promise<ReturnVisit>;
+  saveBibleStudy: (
+    form: BibleStudyFormData,
+    existingId?: string,
+    opts?: { allowDuplicate?: boolean }
+  ) => Promise<BibleStudy>;
+  saveStudySession: (
+    form: BibleStudySessionFormData
+  ) => Promise<{ session: BibleStudySession; study: BibleStudy }>;
+  updateBibleStudyStatus: (
+    id: string,
+    status: BibleStudy["status"]
+  ) => Promise<void>;
+  findDuplicateEvent: (candidate: {
+    person_id: string;
+    event_type: ScheduledMinistryEvent["event_type"];
+    scheduled_date: string;
+    scheduled_time?: string | null;
+  }) => ScheduledMinistryEvent | undefined;
   dismissReminder: (id: string) => Promise<void>;
   updateSettings: (patch: Partial<UserSettings>) => Promise<void>;
   signOut: () => Promise<void>;
@@ -103,6 +139,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [returnVisits, setReturnVisits] = useState<ReturnVisit[]>([]);
   const [sessions, setSessions] = useState<MinistrySession[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [bibleStudies, setBibleStudies] = useState<BibleStudy[]>([]);
+  const [studySessions, setStudySessions] = useState<BibleStudySession[]>([]);
+  const [ministryEvents, setMinistryEvents] = useState<ScheduledMinistryEvent[]>(
+    []
+  );
   const [scripturesMap, setScripturesMap] = useState<
     Record<string, { id: string; scripture_reference: string }[]>
   >({});
@@ -133,6 +174,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
     setSessions(data.sessions);
     setReminders(data.reminders.filter((r) => !r.dismissed_at));
+    setBibleStudies(
+      (data.bibleStudies || []).map((s) => ({
+        ...s,
+        person: data.people.find((p) => p.id === s.person_id) ?? null,
+      }))
+    );
+    setStudySessions(data.studySessions || []);
+    setMinistryEvents(
+      (data.ministryEvents || []).map((e) => ({
+        ...e,
+        person: data.people.find((p) => p.id === e.person_id) ?? null,
+      }))
+    );
     setScripturesMap(
       data.scriptures.reduce<Record<string, { id: string; scripture_reference: string }[]>>(
         (acc, s) => {
@@ -160,6 +214,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         remindersRes,
         settingsRes,
         scripturesRes,
+        studiesRes,
+        studySessionsRes,
+        eventsRes,
       ] = await Promise.all([
         supabase.from("profiles").select("*").eq("id", uid).maybeSingle(),
         supabase
@@ -195,6 +252,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
           .eq("user_id", uid)
           .maybeSingle(),
         supabase.from("conversation_scriptures").select("*").eq("user_id", uid),
+        supabase
+          .from("bible_studies")
+          .select("*, person:people(*)")
+          .eq("user_id", uid)
+          .order("updated_at", { ascending: false }),
+        supabase
+          .from("bible_study_sessions")
+          .select("*")
+          .eq("user_id", uid)
+          .order("session_date", { ascending: false }),
+        supabase
+          .from("scheduled_ministry_events")
+          .select("*, person:people(*)")
+          .eq("user_id", uid)
+          .order("scheduled_date", { ascending: true }),
       ]);
 
       const firstError =
@@ -215,6 +287,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ? "Database tables not found. Run supabase/migrations/001_initial_schema.sql in the Supabase SQL Editor."
             : firstError.message
         );
+      }
+
+      const bibleTablesMissing =
+        studiesRes.error?.message?.includes("does not exist") ||
+        studySessionsRes.error?.message?.includes("does not exist") ||
+        eventsRes.error?.message?.includes("does not exist") ||
+        studiesRes.error?.code === "42P01" ||
+        studySessionsRes.error?.code === "42P01" ||
+        eventsRes.error?.code === "42P01";
+
+      if (
+        (studiesRes.error || studySessionsRes.error || eventsRes.error) &&
+        !bibleTablesMissing
+      ) {
+        console.error("Bible Studies load error:", {
+          studiesRes: studiesRes.error,
+          studySessionsRes: studySessionsRes.error,
+          eventsRes: eventsRes.error,
+        });
       }
 
       const scriptureByConv =
@@ -258,6 +349,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setReturnVisits((rvRes.data as ReturnVisit[]) || []);
       setSessions((sessionsRes.data as MinistrySession[]) || []);
       setReminders((remindersRes.data as Reminder[]) || []);
+      setBibleStudies(
+        bibleTablesMissing ? [] : (studiesRes.data as BibleStudy[]) || []
+      );
+      setStudySessions(
+        bibleTablesMissing
+          ? []
+          : (studySessionsRes.data as BibleStudySession[]) || []
+      );
+      setMinistryEvents(
+        bibleTablesMissing
+          ? []
+          : (eventsRes.data as ScheduledMinistryEvent[]) || []
+      );
       setSettings((settingsRes.data as UserSettings) || defaultSettings(uid));
       setScripturesMap(scriptureByConv);
     },
@@ -351,6 +455,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setReturnVisits([]);
           setSessions([]);
           setReminders([]);
+          setBibleStudies([]);
+          setStudySessions([]);
+          setMinistryEvents([]);
           setSettings(null);
           setDisplayName("");
           if (typeof window !== "undefined") {
@@ -395,6 +502,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setReturnVisits([]);
     setSessions([]);
     setReminders([]);
+    setBibleStudies([]);
+    setStudySessions([]);
+    setMinistryEvents([]);
   }, []);
 
   const resetDemo = useCallback(() => {
@@ -751,13 +861,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [applyDemo, demoMode, refresh]
   );
 
+  const findDuplicateEvent = useCallback(
+    (candidate: {
+      person_id: string;
+      event_type: ScheduledMinistryEvent["event_type"];
+      scheduled_date: string;
+      scheduled_time?: string | null;
+    }) => findDuplicateMinistryEvent(ministryEvents, candidate),
+    [ministryEvents]
+  );
+
   const createReturnVisit = useCallback(
     async (
       visit: Omit<
         ReturnVisit,
         "id" | "user_id" | "created_at" | "updated_at" | "is_demo"
-      >
+      >,
+      opts?: { allowDuplicate?: boolean }
     ) => {
+      if (!opts?.allowDuplicate) {
+        const dup = findDuplicateMinistryEvent(ministryEvents, {
+          person_id: visit.person_id,
+          event_type: "return_visit",
+          scheduled_date: visit.scheduled_date,
+          scheduled_time: visit.scheduled_time,
+        });
+        if (dup) {
+          throw new Error(
+            "DUPLICATE_EVENT: A return visit is already scheduled for this person at the same date and time."
+          );
+        }
+      }
       const now = new Date().toISOString();
       if (demoMode) {
         const data = loadDemoData();
@@ -770,6 +904,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           updated_at: now,
         };
         data.returnVisits = [created, ...data.returnVisits];
+        syncReturnVisitEventDemo(data, created);
         saveDemoData(data);
         applyDemo(data);
         return created;
@@ -781,10 +916,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .select()
         .single();
       if (error) throw error;
+      const created = data as ReturnVisit;
+      try {
+        await upsertReturnVisitEventSupabase(user!.id, created);
+      } catch (e) {
+        console.warn("Calendar sync skipped (run migration 005?):", e);
+      }
       await refresh();
-      return data as ReturnVisit;
+      return created;
     },
-    [applyDemo, demoMode, refresh, user]
+    [applyDemo, demoMode, ministryEvents, refresh, user]
   );
 
   const updateReturnVisit = useCallback(
@@ -796,19 +937,114 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ? { ...rv, ...patch, updated_at: new Date().toISOString() }
             : rv
         );
+        const updated = data.returnVisits.find((rv) => rv.id === id);
+        if (updated) syncReturnVisitEventDemo(data, updated);
         saveDemoData(data);
         applyDemo(data);
         return;
       }
       const supabase = createClient();
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("return_visits")
         .update(patch)
-        .eq("id", id);
+        .eq("id", id)
+        .select()
+        .single();
       if (error) throw error;
+      try {
+        await upsertReturnVisitEventSupabase(user!.id, data as ReturnVisit);
+      } catch (e) {
+        console.warn("Calendar sync skipped (run migration 005?):", e);
+      }
       await refresh();
     },
-    [applyDemo, demoMode, refresh]
+    [applyDemo, demoMode, refresh, user]
+  );
+
+  const saveBibleStudy = useCallback(
+    async (
+      form: BibleStudyFormData,
+      existingId?: string,
+      opts?: { allowDuplicate?: boolean }
+    ) => {
+      if (!form.person_id) throw new Error("Select a person for this study.");
+      if (!form.publication.trim()) {
+        throw new Error("Enter the study publication or material.");
+      }
+      if (form.next_study_date && !opts?.allowDuplicate) {
+        const dup = findDuplicateMinistryEvent(ministryEvents, {
+          person_id: form.person_id,
+          event_type: "bible_study",
+          scheduled_date: form.next_study_date,
+          scheduled_time: form.next_study_time,
+        });
+        if (dup && dup.bible_study_id !== existingId) {
+          throw new Error(
+            "DUPLICATE_EVENT: A Bible study is already scheduled for this person at the same date and time."
+          );
+        }
+      }
+      if (demoMode) {
+        const study = saveBibleStudyDemo(form, existingId);
+        applyDemo(loadDemoData());
+        return study;
+      }
+      const study = await saveBibleStudyRemote(form, user!.id, existingId);
+      await refresh();
+      return study;
+    },
+    [applyDemo, demoMode, ministryEvents, refresh, user]
+  );
+
+  const saveStudySession = useCallback(
+    async (form: BibleStudySessionFormData) => {
+      if (demoMode) {
+        const result = saveStudySessionDemo(form);
+        applyDemo(loadDemoData());
+        return result;
+      }
+      const result = await saveStudySessionRemote(form, user!.id);
+      await refresh();
+      return result;
+    },
+    [applyDemo, demoMode, refresh, user]
+  );
+
+  const updateBibleStudyStatus = useCallback(
+    async (id: string, status: BibleStudy["status"]) => {
+      if (demoMode) {
+        const data = loadDemoData();
+        const study = data.bibleStudies.find((s) => s.id === id);
+        if (!study) return;
+        const updated = {
+          ...study,
+          status,
+          updated_at: new Date().toISOString(),
+        };
+        data.bibleStudies = data.bibleStudies.map((s) =>
+          s.id === id ? updated : s
+        );
+        const { syncBibleStudyEventDemo } = await import("@/lib/ministry-api");
+        syncBibleStudyEventDemo(data, updated);
+        saveDemoData(data);
+        applyDemo(data);
+        return;
+      }
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("bible_studies")
+        .update({ status })
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      const { upsertBibleStudyEventSupabase } = await import(
+        "@/lib/ministry-api"
+      );
+      await upsertBibleStudyEventSupabase(user!.id, data as BibleStudy);
+      await refresh();
+    },
+    [applyDemo, demoMode, refresh, user]
   );
 
   const saveConversation = useCallback(
@@ -907,6 +1143,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             updated_at: now,
           };
           data.returnVisits = [returnVisit, ...data.returnVisits];
+          syncReturnVisitEventDemo(data, returnVisit);
         }
 
         // Update person record in demo store
@@ -1087,6 +1324,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     returnVisits,
     sessions,
     reminders,
+    bibleStudies,
+    studySessions,
+    ministryEvents,
     refresh,
     enableDemoMode,
     disableDemoMode,
@@ -1101,6 +1341,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     archivePerson,
     updateReturnVisit,
     createReturnVisit,
+    saveBibleStudy,
+    saveStudySession,
+    updateBibleStudyStatus,
+    findDuplicateEvent,
     dismissReminder,
     updateSettings,
     signOut,

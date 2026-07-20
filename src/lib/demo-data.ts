@@ -1,14 +1,39 @@
 import type {
+  BibleStudy,
+  BibleStudySession,
   Conversation,
   ConversationScripture,
   MinistrySession,
   Person,
   Reminder,
   ReturnVisit,
+  ScheduledMinistryEvent,
 } from "./types";
 import { todayISO, getNextSaturdayAfternoon } from "./utils";
 
 const DEMO_USER = "demo-user";
+
+function eventsFromReturnVisits(
+  returnVisits: ReturnVisit[]
+): ScheduledMinistryEvent[] {
+  return returnVisits.map((rv) => ({
+    id: `demo-event-rv-${rv.id}`,
+    user_id: DEMO_USER,
+    person_id: rv.person_id,
+    event_type: "return_visit" as const,
+    return_visit_id: rv.id,
+    bible_study_id: null,
+    scheduled_date: rv.scheduled_date,
+    scheduled_time: rv.scheduled_time,
+    general_location: rv.general_location,
+    topic_or_lesson: rv.next_planned_topic || rv.last_topic,
+    preparation_notes: rv.preparation_notes,
+    status: rv.status,
+    is_demo: true,
+    created_at: rv.created_at,
+    updated_at: rv.updated_at,
+  }));
+}
 
 export function createDemoData() {
   const today = todayISO();
@@ -25,6 +50,13 @@ export function createDemoData() {
   const nextWeek = new Date();
   nextWeek.setDate(nextWeek.getDate() + 5);
   const nextWeekISO = nextWeek.toISOString().slice(0, 10);
+
+  // Next Tuesday 10:00 for Mary conversion testing
+  const tuesday = new Date();
+  const day = tuesday.getDay();
+  const daysUntilTue = (2 - day + 7) % 7 || 7;
+  tuesday.setDate(tuesday.getDate() + daysUntilTue);
+  const tuesdayISO = tuesday.toISOString().slice(0, 10);
 
   const people: Person[] = [
     {
@@ -75,6 +107,22 @@ export function createDemoData() {
       created_at: lastWeek.toISOString(),
       updated_at: lastWeek.toISOString(),
     },
+    {
+      id: "demo-person-mary",
+      user_id: DEMO_USER,
+      name: "Mary",
+      general_location: "Oak Street apartments",
+      preferred_contact_time: "Tuesday mornings",
+      first_met_date: lastWeekISO,
+      interest_level: "very_high",
+      current_discussion_theme: "What the Bible teaches",
+      key_questions: "Can we study the Bible together?",
+      private_notes: "Ready to begin a regular Bible study.",
+      is_demo: true,
+      archived_at: null,
+      created_at: lastWeek.toISOString(),
+      updated_at: yesterday.toISOString(),
+    },
   ];
 
   const joanConversation: Conversation = {
@@ -100,6 +148,37 @@ export function createDemoData() {
       "Met Joan near the pharmacy. She recently lost her mother and asked why God allows suffering. We discussed James 1:13 and Revelation 21:3, 4. She also asked whether everyone goes to heaven. A return visit was planned for Saturday afternoon to discuss God's Kingdom.",
     next_visit_preparation:
       "Review scriptures about God's Kingdom and be ready to gently address her question about heaven.",
+    source: "manual",
+    audio_path: null,
+    keep_audio: false,
+    transcript: null,
+    is_demo: true,
+    created_at: yesterday.toISOString(),
+    updated_at: yesterday.toISOString(),
+  };
+
+  const maryConversation: Conversation = {
+    id: "demo-conv-mary-1",
+    user_id: DEMO_USER,
+    person_id: "demo-person-mary",
+    session_id: null,
+    conversation_date: yesterdayISO,
+    approximate_time: "Morning",
+    general_location: "Oak Street apartments",
+    how_met: "Return visit",
+    main_topic: "What the Bible teaches",
+    questions_asked: "Can we study the Bible together?",
+    concerns_circumstances: null,
+    publications_shared: "Enjoy Life Forever! brochure",
+    interest_level: "very_high",
+    promised_follow_up_date: tuesdayISO,
+    promised_follow_up_time: "10:00 AM",
+    next_topic: "Starting Lesson 1",
+    action_required: "Bring study publication",
+    additional_notes: "",
+    summary:
+      "Visited Mary. She asked if we can study the Bible together and is ready to begin Enjoy Life Forever!",
+    next_visit_preparation: "Prepare Lesson 1 and confirm Tuesday 10:00 AM.",
     source: "manual",
     audio_path: null,
     keep_audio: false,
@@ -213,6 +292,24 @@ export function createDemoData() {
       created_at: lastWeek.toISOString(),
       updated_at: lastWeek.toISOString(),
     },
+    {
+      id: "demo-rv-mary",
+      user_id: DEMO_USER,
+      person_id: "demo-person-mary",
+      conversation_id: "demo-conv-mary-1",
+      scheduled_date: tuesdayISO,
+      scheduled_time: "10:00 AM",
+      status: "planned",
+      last_topic: "What the Bible teaches",
+      question_to_answer: "Can we study the Bible together?",
+      next_planned_topic: "Starting Lesson 1",
+      general_location: "Oak Street apartments",
+      preparation_notes: "Bring Enjoy Life Forever! and prepare Lesson 1.",
+      completed_at: null,
+      is_demo: true,
+      created_at: yesterday.toISOString(),
+      updated_at: yesterday.toISOString(),
+    },
   ];
 
   const sessions: MinistrySession[] = [
@@ -260,14 +357,42 @@ export function createDemoData() {
     },
   ];
 
+  const bibleStudies: BibleStudy[] = [];
+  const studySessions: BibleStudySession[] = [];
+  const ministryEvents = eventsFromReturnVisits(returnVisits);
+
   return {
     people,
-    conversations: [joanConversation, marcusConversation],
+    conversations: [joanConversation, marcusConversation, maryConversation],
     scriptures,
     returnVisits,
     sessions,
     reminders,
+    bibleStudies,
+    studySessions,
+    ministryEvents,
   };
 }
 
 export type DemoData = ReturnType<typeof createDemoData>;
+
+/** Upgrade older localStorage demo payloads that predate Bible Studies. */
+export function normalizeDemoData(raw: Partial<DemoData> | null | undefined): DemoData {
+  const fresh = createDemoData();
+  if (!raw) return fresh;
+  const returnVisits = raw.returnVisits || fresh.returnVisits;
+  return {
+    people: raw.people?.length ? raw.people : fresh.people,
+    conversations: raw.conversations || fresh.conversations,
+    scriptures: raw.scriptures || fresh.scriptures,
+    returnVisits,
+    sessions: raw.sessions || fresh.sessions,
+    reminders: raw.reminders || fresh.reminders,
+    bibleStudies: raw.bibleStudies || [],
+    studySessions: raw.studySessions || [],
+    ministryEvents:
+      raw.ministryEvents?.length
+        ? raw.ministryEvents
+        : eventsFromReturnVisits(returnVisits),
+  };
+}

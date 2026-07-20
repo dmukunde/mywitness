@@ -30,6 +30,7 @@ export default function PersonProfilePage() {
     people,
     conversations,
     returnVisits,
+    bibleStudies,
     archivePerson,
     savePerson,
     createReturnVisit,
@@ -114,19 +115,33 @@ export default function PersonProfilePage() {
 
   const handleSchedule = async () => {
     if (!scheduleDate) return;
-    await createReturnVisit({
+    const visit = {
       person_id: person.id,
       conversation_id: timeline[0]?.id || null,
       scheduled_date: scheduleDate,
       scheduled_time: scheduleTime || null,
-      status: "planned",
+      status: "planned" as const,
       last_topic: person.current_discussion_theme,
       question_to_answer: person.key_questions,
       next_planned_topic: timeline[0]?.next_topic || null,
       general_location: person.general_location,
       preparation_notes: timeline[0]?.next_visit_preparation || null,
       completed_at: null,
-    });
+    };
+    try {
+      await createReturnVisit(visit);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (msg.startsWith("DUPLICATE_EVENT:")) {
+        const ok = window.confirm(
+          `${msg.replace("DUPLICATE_EVENT: ", "")}\n\nSave as a separate appointment anyway?`
+        );
+        if (!ok) return;
+        await createReturnVisit(visit, { allowDuplicate: true });
+      } else {
+        throw err;
+      }
+    }
     setScheduling(false);
     setScheduleDate("");
     setScheduleTime("");
@@ -277,6 +292,23 @@ export default function PersonProfilePage() {
           Edit
         </Button>
       </div>
+      {bibleStudies.some((s) => s.person_id === person.id) ? (
+        <Link
+          href={`/bible-studies/${
+            bibleStudies.find((s) => s.person_id === person.id)!.id
+          }`}
+        >
+          <Button className="w-full bg-amber-700 hover:bg-amber-800" size="sm">
+            Open Bible Study
+          </Button>
+        </Link>
+      ) : (
+        <Link href={`/bible-studies/new?personId=${person.id}`}>
+          <Button className="w-full bg-amber-700 hover:bg-amber-800" size="sm">
+            Start Bible Study
+          </Button>
+        </Link>
+      )}
       <Button
         variant="ghost"
         className="w-full text-rose-700"

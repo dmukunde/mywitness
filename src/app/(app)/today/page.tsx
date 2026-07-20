@@ -29,6 +29,7 @@ function TodayInner() {
     people,
     conversations,
     returnVisits,
+    bibleStudies,
     sessions,
     reminders,
     dismissReminder,
@@ -52,12 +53,37 @@ function TodayInner() {
     [returnVisits, today]
   );
 
-  const upcoming = useMemo(
+  const studiesDueToday = useMemo(
+    () =>
+      bibleStudies.filter(
+        (s) =>
+          s.status === "active" && s.next_study_date === today
+      ),
+    [bibleStudies, today]
+  );
+
+  const nextReturnVisit = useMemo(
     () =>
       returnVisits
         .filter((rv) => rv.status === "planned" && rv.scheduled_date > today)
-        .slice(0, 5),
+        .sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date))[0] ||
+      null,
     [returnVisits, today]
+  );
+
+  const nextBibleStudy = useMemo(
+    () =>
+      bibleStudies
+        .filter(
+          (s) =>
+            s.status === "active" &&
+            s.next_study_date &&
+            s.next_study_date > today
+        )
+        .sort((a, b) =>
+          (a.next_study_date || "").localeCompare(b.next_study_date || "")
+        )[0] || null,
+    [bibleStudies, today]
   );
 
   const todaysConversations = useMemo(
@@ -229,33 +255,70 @@ function TodayInner() {
       )}
 
       <section>
-        <SectionTitle title="Return visits due today" />
-        {dueToday.length === 0 ? (
-          <EmptyState title="No return visits due today" />
+        <SectionTitle title="Today’s Schedule" />
+        {dueToday.length === 0 && studiesDueToday.length === 0 ? (
+          <EmptyState title="Nothing due today" />
         ) : (
           <div className="space-y-2">
-            {dueToday.map((rv) => {
-              const topic = rv.next_planned_topic || rv.last_topic;
+            {dueToday.map((rv) => (
+              <Link key={rv.id} href={`/return-visits/${rv.id}`}>
+                <Card className="mb-2 ring-violet-100/80">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-medium text-stone-900">
+                        {rv.person?.name ||
+                          people.find((p) => p.id === rv.person_id)?.name ||
+                          "Person"}
+                      </p>
+                      <p className="mt-1 text-sm text-stone-500">
+                        {rv.scheduled_time || "Anytime"}
+                      </p>
+                      {rv.last_topic && (
+                        <p className="mt-2 text-xs text-stone-500">
+                          Last: {rv.last_topic}
+                        </p>
+                      )}
+                      {rv.next_planned_topic && (
+                        <div className="mt-2">
+                          <TopicBadge topic={rv.next_planned_topic} tone="amber" />
+                        </div>
+                      )}
+                    </div>
+                    <StatusBadge kind="return_visit" />
+                  </div>
+                </Card>
+              </Link>
+            ))}
+            {studiesDueToday.map((study) => {
+              const student =
+                study.person ||
+                people.find((p) => p.id === study.person_id);
               return (
-                <Link key={rv.id} href={`/return-visits/${rv.id}`}>
-                  <Card className="mb-2 ring-violet-100/80">
+                <Link key={study.id} href={`/bible-studies/${study.id}`}>
+                  <Card className="mb-2 ring-amber-100/90">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="font-medium text-stone-900">
-                          {rv.person?.name ||
-                            people.find((p) => p.id === rv.person_id)?.name ||
-                            "Person"}
+                          {student?.name || "Student"}
                         </p>
                         <p className="mt-1 text-sm text-stone-500">
-                          {rv.scheduled_time || "Anytime"}
+                          {study.next_study_time || "Anytime"}
                         </p>
-                        {topic && (
+                        {study.current_lesson && (
                           <div className="mt-2">
-                            <TopicBadge topic={topic} />
+                            <TopicBadge
+                              topic={study.current_lesson}
+                              tone="amber"
+                            />
                           </div>
                         )}
+                        {study.preparation_notes && (
+                          <p className="mt-2 text-xs text-stone-500">
+                            Prepare: {study.preparation_notes}
+                          </p>
+                        )}
                       </div>
-                      <StatusBadge kind="today" />
+                      <StatusBadge kind="bible_study" />
                     </div>
                   </Card>
                 </Link>
@@ -266,39 +329,79 @@ function TodayInner() {
       </section>
 
       <section>
-        <SectionTitle title="Upcoming return visits" />
-        {upcoming.length === 0 ? (
+        <SectionTitle title="Upcoming" />
+        {!nextReturnVisit && !nextBibleStudy ? (
           <EmptyState title="Nothing scheduled ahead" />
         ) : (
           <div className="space-y-2">
-            {upcoming.map((rv) => {
-              const topic = rv.next_planned_topic || rv.last_topic;
-              return (
-                <Link key={rv.id} href={`/return-visits/${rv.id}`}>
-                  <Card className="mb-2 ring-violet-100/60">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="font-medium text-stone-900">
-                          {rv.person?.name ||
-                            people.find((p) => p.id === rv.person_id)?.name ||
-                            "Person"}
-                        </p>
-                        <p className="mt-1 text-sm text-stone-500">
-                          {formatDisplayDate(rv.scheduled_date)}
-                          {rv.scheduled_time ? ` · ${rv.scheduled_time}` : ""}
-                        </p>
-                        {topic && (
-                          <div className="mt-2">
-                            <TopicBadge topic={topic} tone="amber" />
-                          </div>
-                        )}
-                      </div>
-                      <StatusBadge kind="upcoming" />
+            {nextReturnVisit && (
+              <Link href={`/return-visits/${nextReturnVisit.id}`}>
+                <Card className="mb-2 ring-violet-100/60">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-violet-800">
+                        Next return visit
+                      </p>
+                      <p className="mt-1 font-medium text-stone-900">
+                        {nextReturnVisit.person?.name ||
+                          people.find((p) => p.id === nextReturnVisit.person_id)
+                            ?.name ||
+                          "Person"}
+                      </p>
+                      <p className="mt-1 text-sm text-stone-500">
+                        {formatDisplayDate(nextReturnVisit.scheduled_date)}
+                        {nextReturnVisit.scheduled_time
+                          ? ` · ${nextReturnVisit.scheduled_time}`
+                          : ""}
+                      </p>
+                      {nextReturnVisit.next_planned_topic && (
+                        <div className="mt-2">
+                          <TopicBadge
+                            topic={nextReturnVisit.next_planned_topic}
+                            tone="amber"
+                          />
+                        </div>
+                      )}
                     </div>
-                  </Card>
-                </Link>
-              );
-            })}
+                    <StatusBadge kind="return_visit" />
+                  </div>
+                </Card>
+              </Link>
+            )}
+            {nextBibleStudy && (
+              <Link href={`/bible-studies/${nextBibleStudy.id}`}>
+                <Card className="mb-2 ring-amber-100/70">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                        Next Bible study
+                      </p>
+                      <p className="mt-1 font-medium text-stone-900">
+                        {nextBibleStudy.person?.name ||
+                          people.find((p) => p.id === nextBibleStudy.person_id)
+                            ?.name ||
+                          "Student"}
+                      </p>
+                      <p className="mt-1 text-sm text-stone-500">
+                        {formatDisplayDate(nextBibleStudy.next_study_date!)}
+                        {nextBibleStudy.next_study_time
+                          ? ` · ${nextBibleStudy.next_study_time}`
+                          : ""}
+                      </p>
+                      {nextBibleStudy.current_lesson && (
+                        <div className="mt-2">
+                          <TopicBadge
+                            topic={nextBibleStudy.current_lesson}
+                            tone="amber"
+                          />
+                        </div>
+                      )}
+                    </div>
+                    <StatusBadge kind="bible_study" />
+                  </div>
+                </Card>
+              </Link>
+            )}
           </div>
         )}
       </section>

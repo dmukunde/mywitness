@@ -34,6 +34,9 @@ export default function SettingsPage() {
     people,
     conversations,
     returnVisits,
+    bibleStudies,
+    studySessions,
+    ministryEvents,
     reminders,
   } = useApp();
 
@@ -59,6 +62,9 @@ export default function SettingsPage() {
       people,
       conversations,
       return_visits: returnVisits,
+      bible_studies: bibleStudies,
+      bible_study_sessions: studySessions,
+      scheduled_ministry_events: ministryEvents,
       ministry_sessions: sessions,
       reminders,
       settings,
@@ -429,6 +435,22 @@ export default function SettingsPage() {
               Load fictional demo data
             </Button>
           )}
+        </Card>
+      </section>
+
+      <section>
+        <SectionTitle title="Activity" />
+        <Card className="space-y-3">
+          <p className="text-sm text-stone-600">
+            Review ministry time totals, frequent topics, and scriptures.
+          </p>
+          <Button
+            variant="secondary"
+            className="w-full"
+            onClick={() => router.push("/activity")}
+          >
+            Open activity summary
+          </Button>
         </Card>
       </section>
 

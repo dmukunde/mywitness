@@ -121,7 +121,11 @@ export type VisitBadgeKind =
   | "rescheduled"
   | "demo"
   | "attention"
-  | "bible_study";
+  | "bible_study"
+  | "study_active"
+  | "study_paused"
+  | "study_completed"
+  | "return_visit";
 
 const STATUS_CONFIG: Record<
   VisitBadgeKind,
@@ -132,12 +136,16 @@ const STATUS_CONFIG: Record<
   upcoming: { label: "Upcoming", tone: "purple" },
   done: { label: "Done", tone: "gold" },
   planned: { label: "Planned", tone: "purple" },
-  completed: { label: "Completed", tone: "gold" },
+  completed: { label: "Completed", tone: "green" },
   cancelled: { label: "Cancelled", tone: "stone" },
   rescheduled: { label: "Rescheduled", tone: "amber" },
   demo: { label: "Demo", tone: "stone" },
   attention: { label: "Needs attention", tone: "red" },
-  bible_study: { label: "Bible Study", tone: "green" },
+  bible_study: { label: "Bible Study", tone: "gold" },
+  study_active: { label: "Active", tone: "gold" },
+  study_paused: { label: "Paused", tone: "amber" },
+  study_completed: { label: "Completed", tone: "green" },
+  return_visit: { label: "Return Visit", tone: "purple" },
 };
 
 /** Return-visit / schedule / attention status. */

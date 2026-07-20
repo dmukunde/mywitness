@@ -166,6 +166,14 @@ export default function ReturnVisitPrepPage() {
                 Record new conversation
               </Button>
             </Link>
+            <Link
+              href={`/bible-studies/new?personId=${visit.person_id}&returnVisitId=${visit.id}`}
+              className="block"
+            >
+              <Button className="w-full bg-amber-700 hover:bg-amber-800">
+                Convert to Bible Study
+              </Button>
+            </Link>
             <Button
               variant="secondary"
               className="w-full"

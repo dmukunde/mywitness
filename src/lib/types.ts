@@ -20,6 +20,18 @@ export type MinistryType =
 
 export type ReturnVisitStatus = "planned" | "completed" | "cancelled" | "rescheduled";
 
+export type BibleStudyStatus = "active" | "paused" | "completed";
+
+export type StudyFrequency = "weekly" | "biweekly" | "monthly" | "custom";
+
+export type MinistryEventType = "return_visit" | "bible_study";
+
+export type MinistryEventStatus =
+  | "planned"
+  | "completed"
+  | "cancelled"
+  | "rescheduled";
+
 export type ReminderType =
   | "return_visit"
   | "overdue"
@@ -153,6 +165,134 @@ export interface Reminder {
   created_at: string;
 }
 
+export interface BibleStudy {
+  id: string;
+  user_id: string;
+  person_id: string;
+  publication: string;
+  starting_lesson: string | null;
+  current_lesson: string | null;
+  current_lesson_number: number;
+  total_lessons: number;
+  study_frequency: StudyFrequency;
+  preferred_day: string | null;
+  preferred_time: string | null;
+  first_study_date: string | null;
+  next_study_date: string | null;
+  next_study_time: string | null;
+  last_study_date: string | null;
+  general_location: string | null;
+  status: BibleStudyStatus;
+  preparation_notes: string | null;
+  private_notes: string | null;
+  source_return_visit_id: string | null;
+  is_demo: boolean;
+  created_at: string;
+  updated_at: string;
+  person?: Person | null;
+  sessions?: BibleStudySession[];
+}
+
+export interface BibleStudySession {
+  id: string;
+  user_id: string;
+  bible_study_id: string;
+  person_id: string | null;
+  session_date: string;
+  start_lesson: string | null;
+  end_lesson: string | null;
+  topics_discussed: string | null;
+  scriptures_discussed: string | null;
+  questions_raised: string | null;
+  material_completed: string | null;
+  homework: string | null;
+  next_lesson: string | null;
+  next_scheduled_date: string | null;
+  next_scheduled_time: string | null;
+  preparation_notes: string | null;
+  summary: string | null;
+  source: "voice" | "manual";
+  transcript: string | null;
+  audio_path: string | null;
+  is_demo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScheduledMinistryEvent {
+  id: string;
+  user_id: string;
+  person_id: string;
+  event_type: MinistryEventType;
+  return_visit_id: string | null;
+  bible_study_id: string | null;
+  scheduled_date: string;
+  scheduled_time: string | null;
+  general_location: string | null;
+  topic_or_lesson: string | null;
+  preparation_notes: string | null;
+  status: MinistryEventStatus;
+  is_demo: boolean;
+  created_at: string;
+  updated_at: string;
+  person?: Person | null;
+}
+
+export interface BibleStudyFormData {
+  person_id: string;
+  publication: string;
+  starting_lesson: string;
+  current_lesson: string;
+  current_lesson_number: number;
+  total_lessons: number;
+  study_frequency: StudyFrequency;
+  preferred_day: string;
+  preferred_time: string;
+  first_study_date: string;
+  next_study_date: string;
+  next_study_time: string;
+  general_location: string;
+  status: BibleStudyStatus;
+  preparation_notes: string;
+  private_notes: string;
+  source_return_visit_id: string;
+}
+
+export interface BibleStudySessionFormData {
+  bible_study_id: string;
+  session_date: string;
+  start_lesson: string;
+  end_lesson: string;
+  topics_discussed: string;
+  scriptures_discussed: string;
+  questions_raised: string;
+  material_completed: string;
+  homework: string;
+  next_lesson: string;
+  next_scheduled_date: string;
+  next_scheduled_time: string;
+  preparation_notes: string;
+  summary: string;
+  source: "voice" | "manual";
+  transcript: string;
+  audio_path: string;
+}
+
+export interface StudySessionExtraction {
+  start_lesson: string;
+  end_lesson: string;
+  topics_discussed: string;
+  scriptures_discussed: string[];
+  questions_raised: string[];
+  material_completed: string;
+  homework: string;
+  next_lesson: string;
+  next_scheduled_date: string | null;
+  next_scheduled_time: string;
+  preparation_notes: string;
+  summary: string;
+}
+
 /** Canonical AI extraction shape — must match API / Zod schema keys. */
 export interface ConversationExtraction {
   person_name: string;
@@ -218,6 +358,59 @@ export const MINISTRY_TYPE_LABELS: Record<MinistryType, string> = {
   letter_writing: "Letter writing",
   telephone_witnessing: "Telephone witnessing",
   other: "Other",
+};
+
+export const BIBLE_STUDY_STATUS_LABELS: Record<BibleStudyStatus, string> = {
+  active: "Active",
+  paused: "Paused",
+  completed: "Completed",
+};
+
+export const STUDY_FREQUENCY_LABELS: Record<StudyFrequency, string> = {
+  weekly: "Weekly",
+  biweekly: "Every two weeks",
+  monthly: "Monthly",
+  custom: "Custom",
+};
+
+export const EMPTY_BIBLE_STUDY_FORM: BibleStudyFormData = {
+  person_id: "",
+  publication: "",
+  starting_lesson: "Lesson 1",
+  current_lesson: "Lesson 1",
+  current_lesson_number: 1,
+  total_lessons: 60,
+  study_frequency: "weekly",
+  preferred_day: "",
+  preferred_time: "",
+  first_study_date: "",
+  next_study_date: "",
+  next_study_time: "",
+  general_location: "",
+  status: "active",
+  preparation_notes: "",
+  private_notes: "",
+  source_return_visit_id: "",
+};
+
+export const EMPTY_STUDY_SESSION_FORM: BibleStudySessionFormData = {
+  bible_study_id: "",
+  session_date: new Date().toISOString().slice(0, 10),
+  start_lesson: "",
+  end_lesson: "",
+  topics_discussed: "",
+  scriptures_discussed: "",
+  questions_raised: "",
+  material_completed: "",
+  homework: "",
+  next_lesson: "",
+  next_scheduled_date: "",
+  next_scheduled_time: "",
+  preparation_notes: "",
+  summary: "",
+  source: "manual",
+  transcript: "",
+  audio_path: "",
 };
 
 export const EMPTY_CONVERSATION_FORM: ConversationFormData = {
