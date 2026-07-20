@@ -49,6 +49,7 @@ function NewBibleStudyInner() {
             ? `For ${person.name} — existing person kept as one record`
             : "Link to an existing person"
         }
+        accent="gold"
       />
       <BibleStudyForm
         people={people}

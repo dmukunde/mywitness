@@ -176,6 +176,7 @@ export default function RecordStudySessionPage() {
         <PageHeader
           title="Review study session"
           subtitle="Confirm progress, then save"
+          accent="gold"
         />
         <StudySessionForm
           initial={form}
@@ -202,6 +203,7 @@ export default function RecordStudySessionPage() {
       <PageHeader
         title="Record study session"
         subtitle={`${person?.name || "Student"} · ${study.publication}`}
+        accent="gold"
       />
 
       <Card className="flex flex-col items-center py-10 ring-amber-100">

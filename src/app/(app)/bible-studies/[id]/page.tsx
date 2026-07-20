@@ -132,6 +132,7 @@ export default function BibleStudyProfilePage() {
       <PageHeader
         title={person?.name || "Bible Study"}
         subtitle={study.publication}
+        accent="gold"
         action={<StatusBadge kind={statusKind} />}
       />
 

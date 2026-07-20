@@ -31,6 +31,7 @@ export default function WriteStudySessionPage() {
       <PageHeader
         title="Write study notes"
         subtitle={study.publication}
+        accent="gold"
       />
       <StudySessionForm
         initial={{

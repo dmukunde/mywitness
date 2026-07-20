@@ -90,6 +90,7 @@ export default function BibleStudiesPage() {
       <PageHeader
         title="Bible Studies"
         subtitle="Active studies · Paused · Completed"
+        accent="gold"
         action={
           <Link href="/bible-studies/new">
             <Button size="sm" className="bg-amber-700 hover:bg-amber-800">

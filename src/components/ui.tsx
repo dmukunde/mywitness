@@ -204,18 +204,45 @@ export function PageHeader({
   title,
   subtitle,
   action,
+  accent,
 }: {
   title: string;
   subtitle?: string;
   action?: ReactNode;
+  /** Soft brand tint for section identity (Calendar purple, Bible Studies gold). */
+  accent?: "green" | "purple" | "gold" | "neutral";
 }) {
+  const titleTone =
+    accent === "purple"
+      ? "text-violet-950"
+      : accent === "gold"
+        ? "text-amber-950"
+        : accent === "green"
+          ? "text-emerald-950"
+          : "text-stone-900";
+  const subtitleTone =
+    accent === "purple"
+      ? "text-violet-700/70"
+      : accent === "gold"
+        ? "text-amber-800/70"
+        : accent === "green"
+          ? "text-emerald-800/70"
+          : "text-stone-500";
+
   return (
     <div className="mb-5 flex items-start justify-between gap-3">
       <div>
-        <h1 className="font-display text-2xl font-semibold tracking-tight text-stone-900">
+        <h1
+          className={cn(
+            "font-display text-2xl font-semibold tracking-tight",
+            titleTone
+          )}
+        >
           {title}
         </h1>
-        {subtitle && <p className="mt-1 text-sm text-stone-500">{subtitle}</p>}
+        {subtitle && (
+          <p className={cn("mt-1 text-sm", subtitleTone)}>{subtitle}</p>
+        )}
       </div>
       {action}
     </div>

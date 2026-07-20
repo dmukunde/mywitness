@@ -125,6 +125,7 @@ export default function CalendarPage() {
       <PageHeader
         title="Calendar"
         subtitle="Return Visits and Bible Studies"
+        accent="purple"
       />
 
       <div className="flex flex-wrap gap-2">
@@ -159,7 +160,10 @@ export default function CalendarPage() {
         <Button
           size="sm"
           variant={view === "month" ? "primary" : "secondary"}
-          className="flex-1"
+          className={cn(
+            "flex-1",
+            view === "month" && "bg-violet-700 hover:bg-violet-800"
+          )}
           onClick={() => setView("month")}
         >
           Month
@@ -167,7 +171,10 @@ export default function CalendarPage() {
         <Button
           size="sm"
           variant={view === "agenda" ? "primary" : "secondary"}
-          className="flex-1"
+          className={cn(
+            "flex-1",
+            view === "agenda" && "bg-violet-700 hover:bg-violet-800"
+          )}
           onClick={() => setView("agenda")}
         >
           Agenda
@@ -207,7 +214,7 @@ export default function CalendarPage() {
             >
               <ChevronLeft className="h-5 w-5" />
             </button>
-            <p className="font-display text-lg font-semibold text-stone-900">
+            <p className="font-display text-lg font-semibold text-violet-950">
               {format(cursor, "MMMM yyyy")}
             </p>
             <button
