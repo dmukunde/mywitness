@@ -26,6 +26,7 @@ import {
   PageHeader,
   Select,
   Textarea,
+  TimeField,
 } from "@/components/ui";
 import { StatusBadge } from "@/components/badges";
 import { cn, formatDisplayDate, todayISO } from "@/lib/utils";
@@ -417,24 +418,21 @@ function CalendarInner() {
               </option>
             ))}
           </Select>
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Date"
-              type="date"
-              value={form.scheduled_date}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, scheduled_date: e.target.value }))
-              }
-            />
-            <Input
-              label="Time"
-              value={form.scheduled_time}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, scheduled_time: e.target.value }))
-              }
-              placeholder="10:00 AM"
-            />
-          </div>
+          <Input
+            label="Date"
+            type="date"
+            value={form.scheduled_date}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, scheduled_date: e.target.value }))
+            }
+          />
+          <TimeField
+            label="Time"
+            value={form.scheduled_time}
+            onChange={(value) =>
+              setForm((f) => ({ ...f, scheduled_time: value }))
+            }
+          />
           <Input
             label="Location"
             value={form.location}

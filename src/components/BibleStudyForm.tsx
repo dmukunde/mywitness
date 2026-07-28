@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Input, Select, Textarea } from "@/components/ui";
+import { Button, Input, Select, Textarea, TimeField } from "@/components/ui";
 import {
   BIBLE_STUDY_STATUS_LABELS,
   EMPTY_BIBLE_STUDY_FORM,
@@ -109,20 +109,17 @@ export function BibleStudyForm({
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <Input
-          label="Preferred day"
-          value={form.preferred_day}
-          onChange={(e) => update("preferred_day", e.target.value)}
-          placeholder="Tuesday"
-        />
-        <Input
-          label="Preferred time"
-          value={form.preferred_time}
-          onChange={(e) => update("preferred_time", e.target.value)}
-          placeholder="10:00 AM"
-        />
-      </div>
+      <Input
+        label="Preferred day"
+        value={form.preferred_day}
+        onChange={(e) => update("preferred_day", e.target.value)}
+        placeholder="Tuesday"
+      />
+      <TimeField
+        label="Preferred time"
+        value={form.preferred_time}
+        onChange={(value) => update("preferred_time", value)}
+      />
 
       <div className="grid grid-cols-2 gap-3">
         <Input
@@ -139,11 +136,10 @@ export function BibleStudyForm({
         />
       </div>
 
-      <Input
+      <TimeField
         label="Next study time"
         value={form.next_study_time}
-        onChange={(e) => update("next_study_time", e.target.value)}
-        placeholder="10:00 AM"
+        onChange={(value) => update("next_study_time", value)}
       />
 
       <Input

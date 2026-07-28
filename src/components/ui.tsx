@@ -94,6 +94,66 @@ export function Input({
   );
 }
 
+const TIME_PRESETS = ["Morning", "Afternoon", "Evening"] as const;
+
+function isClockTime(value: string) {
+  return /^\d{2}:\d{2}$/.test(value.trim());
+}
+
+/**
+ * Time field with a native time picker (tap opens the device's own picker on
+ * iOS/Android) plus quick daypart presets, since many flows (AI extraction,
+ * demo data) use "Morning"/"Afternoon"/"Evening" instead of a clock time.
+ */
+export function TimeField({
+  label,
+  value,
+  onChange,
+  className,
+  hint,
+}: {
+  label?: string;
+  value: string;
+  onChange: (value: string) => void;
+  className?: string;
+  hint?: string;
+}) {
+  const clockValue = isClockTime(value) ? value : "";
+  return (
+    <div className={cn("space-y-1.5", className)}>
+      {label && (
+        <span className="block text-sm font-medium text-stone-700">
+          {label}
+        </span>
+      )}
+      <input
+        type="time"
+        value={clockValue}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-xl border border-stone-200 bg-white px-3.5 py-3 text-base text-stone-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"
+      />
+      <div className="flex flex-wrap gap-1.5">
+        {TIME_PRESETS.map((preset) => (
+          <button
+            key={preset}
+            type="button"
+            onClick={() => onChange(preset)}
+            className={cn(
+              "rounded-full px-2.5 py-1 text-xs font-medium ring-1 transition",
+              value === preset
+                ? "bg-stone-800 text-white ring-stone-800"
+                : "bg-white text-stone-600 ring-stone-200 hover:bg-stone-50"
+            )}
+          >
+            {preset}
+          </button>
+        ))}
+      </div>
+      {hint && <span className="text-xs text-amber-700">{hint}</span>}
+    </div>
+  );
+}
+
 export function Textarea({
   className,
   label,

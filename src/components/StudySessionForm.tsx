@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Input, Textarea } from "@/components/ui";
+import { Button, Input, Textarea, TimeField } from "@/components/ui";
 import {
   EMPTY_STUDY_SESSION_FORM,
   type BibleStudySessionFormData,
@@ -92,19 +92,17 @@ export function StudySessionForm({
         value={form.next_lesson}
         onChange={(e) => update("next_lesson", e.target.value)}
       />
-      <div className="grid grid-cols-2 gap-3">
-        <Input
-          label="Next scheduled study"
-          type="date"
-          value={form.next_scheduled_date}
-          onChange={(e) => update("next_scheduled_date", e.target.value)}
-        />
-        <Input
-          label="Next study time"
-          value={form.next_scheduled_time}
-          onChange={(e) => update("next_scheduled_time", e.target.value)}
-        />
-      </div>
+      <Input
+        label="Next scheduled study"
+        type="date"
+        value={form.next_scheduled_date}
+        onChange={(e) => update("next_scheduled_date", e.target.value)}
+      />
+      <TimeField
+        label="Next study time"
+        value={form.next_scheduled_time}
+        onChange={(value) => update("next_scheduled_time", value)}
+      />
       <Textarea
         label="Personal preparation notes"
         value={form.preparation_notes}

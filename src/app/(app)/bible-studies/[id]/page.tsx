@@ -10,6 +10,7 @@ import {
   EmptyState,
   Input,
   PageHeader,
+  TimeField,
 } from "@/components/ui";
 import {
   ScriptureBadgeList,
@@ -226,11 +227,7 @@ export default function BibleStudyProfilePage() {
             value={nextDate}
             onChange={(e) => setNextDate(e.target.value)}
           />
-          <Input
-            label="Time"
-            value={nextTime}
-            onChange={(e) => setNextTime(e.target.value)}
-          />
+          <TimeField label="Time" value={nextTime} onChange={setNextTime} />
           <Button
             className="w-full bg-amber-700 hover:bg-amber-800"
             onClick={() => void saveNext()}
