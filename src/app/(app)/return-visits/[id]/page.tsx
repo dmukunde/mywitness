@@ -10,6 +10,7 @@ import {
   ConfirmDialog,
   EmptyState,
   Input,
+  LocationField,
   PageHeader,
   Textarea,
 } from "@/components/ui";
@@ -36,6 +37,7 @@ export default function ReturnVisitPrepPage() {
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [notes, setNotes] = useState("");
+  const [location, setLocation] = useState("");
 
   if (!visit) {
     return (
@@ -89,6 +91,7 @@ export default function ReturnVisitPrepPage() {
       scheduled_date: date,
       scheduled_time: time || null,
       preparation_notes: notes || visit.preparation_notes,
+      general_location: location || visit.general_location,
       status: "planned",
     });
     setRescheduling(false);
@@ -150,6 +153,16 @@ export default function ReturnVisitPrepPage() {
           value={visit.preparation_notes || conversation?.next_visit_preparation}
         />
         <Block label="Location" value={visit.general_location} />
+        {person?.location_lat != null && person?.location_lng != null && (
+          <a
+            href={`https://www.google.com/maps/search/?api=1&query=${person.location_lat},${person.location_lng}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="-mt-2 inline-flex text-xs font-medium text-emerald-800 underline decoration-emerald-200 underline-offset-2"
+          >
+            Reopen pinned location in Maps
+          </a>
+        )}
       </Card>
 
       <div className="space-y-2">
@@ -181,6 +194,7 @@ export default function ReturnVisitPrepPage() {
                 setDate(visit.scheduled_date);
                 setTime(visit.scheduled_time || "");
                 setNotes(visit.preparation_notes || "");
+                setLocation(visit.general_location || "");
                 setRescheduling(true);
               }}
             >
@@ -216,6 +230,10 @@ export default function ReturnVisitPrepPage() {
             label="Time"
             value={time}
             onChange={(e) => setTime(e.target.value)}
+          />
+          <LocationField
+            value={location}
+            onChange={setLocation}
           />
           <Textarea
             label="Preparation notes"

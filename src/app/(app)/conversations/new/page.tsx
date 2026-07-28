@@ -21,6 +21,8 @@ function NewConversationInner() {
     person_name: person?.name || "",
     conversation_date: todayISO(),
     general_location: person?.general_location || "",
+    location_lat: person?.location_lat ?? null,
+    location_lng: person?.location_lng ?? null,
     source: "manual",
     session_id: "",
   };

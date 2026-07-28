@@ -10,9 +10,11 @@ import {
   ConfirmDialog,
   EmptyState,
   Input,
+  LocationField,
   PageHeader,
   Select,
   Textarea,
+  type LocationCoords,
 } from "@/components/ui";
 import { InterestBadge, INTEREST_LEVEL_ORDER } from "@/components/InterestBadge";
 import {
@@ -65,6 +67,7 @@ export default function PersonProfilePage() {
     key_questions: "",
     private_notes: "",
   });
+  const [coords, setCoords] = useState<LocationCoords | null>(null);
 
   if (!person) {
     return (
@@ -90,6 +93,11 @@ export default function PersonProfilePage() {
       key_questions: person.key_questions || "",
       private_notes: person.private_notes || "",
     });
+    setCoords(
+      person.location_lat != null && person.location_lng != null
+        ? { lat: person.location_lat, lng: person.location_lng }
+        : null
+    );
     setEditing(true);
   };
 
@@ -98,6 +106,8 @@ export default function PersonProfilePage() {
       id: person.id,
       name: form.name,
       general_location: form.general_location || null,
+      location_lat: coords?.lat ?? null,
+      location_lng: coords?.lng ?? null,
       preferred_contact_time: form.preferred_contact_time || null,
       first_met_date: form.first_met_date || null,
       interest_level: form.interest_level || "unknown",
@@ -156,12 +166,11 @@ export default function PersonProfilePage() {
           value={form.name}
           onChange={(e) => setForm({ ...form, name: e.target.value })}
         />
-        <Input
-          label="General location"
+        <LocationField
           value={form.general_location}
-          onChange={(e) =>
-            setForm({ ...form, general_location: e.target.value })
-          }
+          onChange={(value) => setForm({ ...form, general_location: value })}
+          coords={coords}
+          onCoordsChange={setCoords}
         />
         <Input
           label="Preferred contact time"
@@ -227,6 +236,17 @@ export default function PersonProfilePage() {
         subtitle={person.general_location || "No location set"}
         action={<InterestBadge level={person.interest_level} showUnknown />}
       />
+
+      {person.location_lat != null && person.location_lng != null && (
+        <a
+          href={`https://www.google.com/maps/search/?api=1&query=${person.location_lat},${person.location_lng}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="-mt-3 inline-flex items-center gap-1 text-xs font-medium text-emerald-800 underline decoration-emerald-200 underline-offset-2"
+        >
+          Reopen pinned location in Maps
+        </a>
+      )}
 
       {person.is_demo && <StatusBadge kind="demo" label="Demo data" />}
 

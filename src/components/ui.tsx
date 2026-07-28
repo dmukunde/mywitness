@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { ExternalLink, Loader2, MapPin, MapPinCheck, MapPinOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, TextareaHTMLAttributes, SelectHTMLAttributes } from "react";
 
@@ -149,6 +151,135 @@ export function TimeField({
           </button>
         ))}
       </div>
+      {hint && <span className="text-xs text-amber-700">{hint}</span>}
+    </div>
+  );
+}
+
+export type LocationCoords = { lat: number; lng: number };
+
+function mapsUrlFor(coords: LocationCoords) {
+  return `https://www.google.com/maps/search/?api=1&query=${coords.lat},${coords.lng}`;
+}
+
+/**
+ * Free-text landmark/location field with a pin icon. When `onCoordsChange`
+ * is supplied, also offers "Use current location" (native browser geolocation,
+ * no third-party service) and, once captured, a "Reopen in Maps" link.
+ * Coordinates are never shown to the user as raw numbers — only a
+ * pinned/not-pinned state.
+ */
+export function LocationField({
+  label = "Location",
+  value,
+  onChange,
+  coords,
+  onCoordsChange,
+  placeholder,
+  className,
+  hint,
+}: {
+  label?: string;
+  value: string;
+  onChange: (value: string) => void;
+  coords?: LocationCoords | null;
+  onCoordsChange?: (coords: LocationCoords | null) => void;
+  placeholder?: string;
+  className?: string;
+  hint?: string;
+}) {
+  const [capturing, setCapturing] = useState(false);
+  const [geoError, setGeoError] = useState<string | null>(null);
+
+  const captureLocation = () => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setGeoError("Location isn't available on this device.");
+      return;
+    }
+    setGeoError(null);
+    setCapturing(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCapturing(false);
+        onCoordsChange?.({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        });
+      },
+      (err) => {
+        setCapturing(false);
+        setGeoError(
+          err.code === err.PERMISSION_DENIED
+            ? "Location permission denied."
+            : "Couldn't get your location."
+        );
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  return (
+    <div className={cn("space-y-1.5", className)}>
+      {label && (
+        <span className="block text-sm font-medium text-stone-700">
+          {label}
+        </span>
+      )}
+      <div className="relative">
+        <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder || "Landmark, village, or meeting place"}
+          className="w-full rounded-xl border border-stone-200 bg-white py-3 pl-10 pr-3.5 text-base text-stone-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"
+        />
+      </div>
+
+      {onCoordsChange && (
+        <div className="flex flex-wrap items-center gap-3 pt-0.5 text-xs">
+          {coords ? (
+            <>
+              <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
+                <MapPinCheck className="h-3.5 w-3.5" />
+                Location pinned
+              </span>
+              <a
+                href={mapsUrlFor(coords)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 font-medium text-emerald-800 underline decoration-emerald-200 underline-offset-2"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                Reopen in Maps
+              </a>
+              <button
+                type="button"
+                onClick={() => onCoordsChange(null)}
+                className="inline-flex items-center gap-1 text-stone-500 hover:text-stone-700"
+              >
+                <MapPinOff className="h-3.5 w-3.5" />
+                Remove
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={captureLocation}
+              disabled={capturing}
+              className="inline-flex items-center gap-1 font-medium text-emerald-800 disabled:opacity-60"
+            >
+              {capturing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <MapPin className="h-3.5 w-3.5" />
+              )}
+              {capturing ? "Getting location…" : "Use current location"}
+            </button>
+          )}
+        </div>
+      )}
+      {geoError && <span className="block text-xs text-rose-600">{geoError}</span>}
       {hint && <span className="text-xs text-amber-700">{hint}</span>}
     </div>
   );

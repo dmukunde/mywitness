@@ -91,6 +91,8 @@ export default function BibleStudyProfilePage() {
         next_study_date: nextDate,
         next_study_time: nextTime,
         general_location: study.general_location || "",
+        location_lat: person?.location_lat ?? null,
+        location_lng: person?.location_lng ?? null,
         status: study.status,
         preparation_notes: study.preparation_notes || "",
         private_notes: study.private_notes || "",

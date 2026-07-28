@@ -3,7 +3,15 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/lib/app-context";
-import { Button, Input, PageHeader, Select, Textarea } from "@/components/ui";
+import {
+  Button,
+  Input,
+  LocationField,
+  PageHeader,
+  Select,
+  Textarea,
+  type LocationCoords,
+} from "@/components/ui";
 import { INTEREST_LEVEL_ORDER } from "@/components/InterestBadge";
 import { INTEREST_LABELS, type InterestLevel } from "@/lib/types";
 import { todayISO } from "@/lib/utils";
@@ -13,6 +21,7 @@ export default function NewPersonPage() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [location, setLocation] = useState("");
+  const [coords, setCoords] = useState<LocationCoords | null>(null);
   const [preferredTime, setPreferredTime] = useState("");
   const [firstMet, setFirstMet] = useState(todayISO());
   const [interest, setInterest] = useState<InterestLevel | "">("");
@@ -32,6 +41,8 @@ export default function NewPersonPage() {
       const person = await savePerson({
         name: name.trim(),
         general_location: location || null,
+        location_lat: coords?.lat ?? null,
+        location_lng: coords?.lng ?? null,
         preferred_contact_time: preferredTime || null,
         first_met_date: firstMet || todayISO(),
         interest_level: interest || "unknown",
@@ -50,10 +61,11 @@ export default function NewPersonPage() {
     <div className="animate-fade-up space-y-4">
       <PageHeader title="Add Person" subtitle="Create a private profile" />
       <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
-      <Input
-        label="General location"
+      <LocationField
         value={location}
-        onChange={(e) => setLocation(e.target.value)}
+        onChange={setLocation}
+        coords={coords}
+        onCoordsChange={setCoords}
         placeholder="Near the pharmacy"
       />
       <Input

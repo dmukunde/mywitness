@@ -23,6 +23,7 @@ import {
   Card,
   EmptyState,
   Input,
+  LocationField,
   PageHeader,
   Select,
   Textarea,
@@ -285,6 +286,9 @@ function CalendarInner() {
           (s) => s.person_id === form.person_id && s.status === "active"
         );
         if (existingStudy) {
+          const existingPerson = people.find(
+            (p) => p.id === existingStudy.person_id
+          );
           await saveBibleStudy(
             {
               person_id: existingStudy.person_id,
@@ -301,6 +305,8 @@ function CalendarInner() {
               next_study_date: form.scheduled_date,
               next_study_time: form.scheduled_time,
               general_location: form.location || existingStudy.general_location || "",
+              location_lat: existingPerson?.location_lat ?? null,
+              location_lng: existingPerson?.location_lng ?? null,
               status: "active",
               preparation_notes: form.notes || existingStudy.preparation_notes || "",
               private_notes: existingStudy.private_notes || "",
@@ -329,6 +335,8 @@ function CalendarInner() {
               next_study_date: form.scheduled_date,
               next_study_time: form.scheduled_time,
               general_location: form.location || person?.general_location || "",
+              location_lat: person?.location_lat ?? null,
+              location_lng: person?.location_lng ?? null,
               status: "active",
               preparation_notes: form.notes,
               private_notes: "",
@@ -433,10 +441,9 @@ function CalendarInner() {
               setForm((f) => ({ ...f, scheduled_time: value }))
             }
           />
-          <Input
-            label="Location"
+          <LocationField
             value={form.location}
-            onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
+            onChange={(value) => setForm((f) => ({ ...f, location: value }))}
           />
           <Input
             label={scheduleType === "bible_study" ? "Lesson" : "Topic"}

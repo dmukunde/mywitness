@@ -242,6 +242,8 @@ export function saveBibleStudyDemo(
           preferred_contact_time:
             study.preferred_time || p.preferred_contact_time,
           general_location: study.general_location || p.general_location,
+          location_lat: form.location_lat ?? p.location_lat,
+          location_lng: form.location_lng ?? p.location_lng,
           updated_at: now,
         }
       : p
@@ -381,6 +383,8 @@ export async function saveBibleStudyRemote(
       current_discussion_theme: study.publication,
       preferred_contact_time: study.preferred_time,
       general_location: study.general_location,
+      location_lat: form.location_lat,
+      location_lng: form.location_lng,
       updated_at: now,
     })
     .eq("id", study.person_id);

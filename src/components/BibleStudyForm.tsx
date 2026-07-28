@@ -1,6 +1,14 @@
 "use client";
 
-import { Button, Input, Select, Textarea, TimeField } from "@/components/ui";
+import {
+  Button,
+  Input,
+  LocationField,
+  Select,
+  Textarea,
+  TimeField,
+  type LocationCoords,
+} from "@/components/ui";
 import {
   BIBLE_STUDY_STATUS_LABELS,
   EMPTY_BIBLE_STUDY_FORM,
@@ -142,10 +150,19 @@ export function BibleStudyForm({
         onChange={(value) => update("next_study_time", value)}
       />
 
-      <Input
+      <LocationField
         label="General location"
         value={form.general_location}
-        onChange={(e) => update("general_location", e.target.value)}
+        onChange={(value) => update("general_location", value)}
+        coords={
+          form.location_lat != null && form.location_lng != null
+            ? { lat: form.location_lat, lng: form.location_lng }
+            : null
+        }
+        onCoordsChange={(next: LocationCoords | null) => {
+          update("location_lat", next?.lat ?? null);
+          update("location_lng", next?.lng ?? null);
+        }}
       />
 
       <Select

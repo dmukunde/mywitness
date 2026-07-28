@@ -63,6 +63,9 @@ export interface Person {
   user_id: string;
   name: string;
   general_location: string | null;
+  /** Optional pin captured via "Use current location" — for reopening the spot later, never shown as raw numbers. */
+  location_lat: number | null;
+  location_lng: number | null;
   preferred_contact_time: string | null;
   first_met_date: string | null;
   interest_level: InterestLevel | null;
@@ -252,6 +255,9 @@ export interface BibleStudyFormData {
   next_study_date: string;
   next_study_time: string;
   general_location: string;
+  /** Not stored on bible_studies — passed through to update the person's pinned location. */
+  location_lat: number | null;
+  location_lng: number | null;
   status: BibleStudyStatus;
   preparation_notes: string;
   private_notes: string;
@@ -317,6 +323,9 @@ export interface ConversationFormData {
   conversation_date: string;
   approximate_time: string;
   general_location: string;
+  /** Not stored on conversations — passed through to update the person's pinned location. */
+  location_lat: number | null;
+  location_lng: number | null;
   how_met: string;
   main_topic: string;
   scriptures: string;
@@ -387,6 +396,8 @@ export const EMPTY_BIBLE_STUDY_FORM: BibleStudyFormData = {
   next_study_date: "",
   next_study_time: "",
   general_location: "",
+  location_lat: null,
+  location_lng: null,
   status: "active",
   preparation_notes: "",
   private_notes: "",
@@ -419,6 +430,8 @@ export const EMPTY_CONVERSATION_FORM: ConversationFormData = {
   conversation_date: new Date().toISOString().slice(0, 10),
   approximate_time: "",
   general_location: "",
+  location_lat: null,
+  location_lng: null,
   how_met: "",
   main_topic: "",
   scriptures: "",

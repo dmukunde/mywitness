@@ -99,6 +99,8 @@ function RecordConversationInner() {
             ...mapExtraction(extraction),
             person_id: personId,
             person_name: extraction.person_name || person?.name || "",
+            location_lat: person?.location_lat ?? null,
+            location_lng: person?.location_lng ?? null,
             source: "voice",
             session_id: "",
             transcript:
@@ -140,6 +142,8 @@ function RecordConversationInner() {
           ...mapExtraction(data.extraction),
           person_id: personId,
           person_name: data.extraction.person_name || person?.name || "",
+          location_lat: person?.location_lat ?? null,
+          location_lng: person?.location_lng ?? null,
           source: "voice",
           session_id: "",
           transcript: data.transcript,

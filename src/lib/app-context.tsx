@@ -769,6 +769,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           user_id: "demo-user",
           name: person.name,
           general_location: person.general_location ?? null,
+          location_lat: person.location_lat ?? null,
+          location_lng: person.location_lng ?? null,
           preferred_contact_time: person.preferred_contact_time ?? null,
           first_met_date: person.first_met_date ?? todayISO(),
           interest_level: person.interest_level ?? "unknown",
@@ -822,6 +824,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           user_id: user!.id,
           name: person.name,
           general_location: person.general_location ?? null,
+          location_lat: person.location_lat ?? null,
+          location_lng: person.location_lng ?? null,
           preferred_contact_time: person.preferred_contact_time ?? null,
           first_met_date: person.first_met_date ?? todayISO(),
           interest_level: person.interest_level || "unknown",
@@ -1065,11 +1069,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (form.interest_level) {
           personPatch.interest_level = form.interest_level;
         }
+        // Only touch the pin when this form actually captured one —
+        // never overwrite an existing pin with a blank one.
+        if (form.location_lat != null || form.location_lng != null) {
+          personPatch.location_lat = form.location_lat;
+          personPatch.location_lng = form.location_lng;
+        }
         person = await savePerson(personPatch);
       } else {
         person = await savePerson({
           name: form.person_name || "Unknown",
           general_location: form.general_location || null,
+          location_lat: form.location_lat,
+          location_lng: form.location_lng,
           first_met_date: form.conversation_date || todayISO(),
           interest_level: form.interest_level || "unknown",
           current_discussion_theme: form.main_topic || null,

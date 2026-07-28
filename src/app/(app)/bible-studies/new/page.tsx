@@ -34,6 +34,8 @@ function NewBibleStudyInner() {
     next_study_time: rv?.scheduled_time || "",
     general_location:
       rv?.general_location || person?.general_location || "",
+    location_lat: person?.location_lat ?? null,
+    location_lng: person?.location_lng ?? null,
     preparation_notes: rv?.preparation_notes || "",
     private_notes: person?.private_notes || "",
     source_return_visit_id: returnVisitId,

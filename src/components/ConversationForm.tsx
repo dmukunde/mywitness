@@ -1,7 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Input, Select, Textarea } from "@/components/ui";
+import {
+  Button,
+  Input,
+  LocationField,
+  Select,
+  Textarea,
+  type LocationCoords,
+} from "@/components/ui";
 import { InterestBadge, INTEREST_LEVEL_ORDER } from "@/components/InterestBadge";
 import {
   EMPTY_CONVERSATION_FORM,
@@ -144,12 +151,21 @@ export function ConversationForm({
         />
       </div>
 
-      <Input
+      <LocationField
         label="General location"
         value={form.general_location}
-        onChange={(e) => update("general_location", e.target.value)}
+        onChange={(value) => update("general_location", value)}
         placeholder="Near the pharmacy"
         hint={hint("general_location")}
+        coords={
+          form.location_lat != null && form.location_lng != null
+            ? { lat: form.location_lat, lng: form.location_lng }
+            : null
+        }
+        onCoordsChange={(next: LocationCoords | null) => {
+          update("location_lat", next?.lat ?? null);
+          update("location_lng", next?.lng ?? null);
+        }}
       />
 
       <Input
