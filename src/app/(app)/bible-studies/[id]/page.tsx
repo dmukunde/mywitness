@@ -131,16 +131,20 @@ export default function BibleStudyProfilePage() {
 
       <Card className="space-y-2 text-sm ring-amber-50">
         <Row label="Current lesson" value={study.current_lesson} />
-        <Row
-          label="Next study"
-          value={
-            study.next_study_date
-              ? `${formatDisplayDate(study.next_study_date)}${
-                  study.next_study_time ? ` · ${study.next_study_time}` : ""
-                }`
-              : null
-          }
-        />
+        {study.next_study_date ? (
+          <Link
+            href={`/calendar?date=${study.next_study_date}`}
+            className="flex justify-between gap-3"
+          >
+            <span className="text-stone-500">Next study</span>
+            <span className="text-right text-amber-800 underline decoration-amber-200 underline-offset-2">
+              {formatDisplayDate(study.next_study_date)}
+              {study.next_study_time ? ` · ${study.next_study_time}` : ""}
+            </span>
+          </Link>
+        ) : (
+          <Row label="Next study" value={null} />
+        )}
         <Row
           label="Last study"
           value={

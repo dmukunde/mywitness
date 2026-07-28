@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   addMonths,
   eachDayOfInterval,
@@ -114,7 +115,7 @@ function mergeCalendarEvents(
   });
 }
 
-export default function CalendarPage() {
+function CalendarInner() {
   const {
     ministryEvents,
     people,
@@ -124,12 +125,25 @@ export default function CalendarPage() {
     saveBibleStudy,
     findDuplicateEvent,
   } = useApp();
+  const searchParams = useSearchParams();
   const today = todayISO();
-  const [cursor, setCursor] = useState(() => parseISO(today));
+  const dateParam = searchParams.get("date");
+  const initialDay =
+    dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : today;
+  const [cursor, setCursor] = useState(() => parseISO(initialDay));
   const [filter, setFilter] = useState<Filter>("all");
   const [view, setView] = useState<ViewMode>("month");
-  const [selectedDay, setSelectedDay] = useState(today);
+  const [selectedDay, setSelectedDay] = useState(initialDay);
   const dayListRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!dateParam) return;
+    requestAnimationFrame(() => {
+      dayListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    // Only run once on arrival via a deep link — not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [scheduleStep, setScheduleStep] = useState<ScheduleStep>(null);
   const [scheduleType, setScheduleType] = useState<MinistryEventType>("return_visit");
@@ -677,6 +691,14 @@ export default function CalendarPage() {
         </section>
       )}
     </div>
+  );
+}
+
+export default function CalendarPage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-stone-500">Loading…</p>}>
+      <CalendarInner />
+    </Suspense>
   );
 }
 
