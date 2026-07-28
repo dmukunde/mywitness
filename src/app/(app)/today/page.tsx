@@ -254,12 +254,11 @@ function TodayInner() {
         </section>
       )}
 
-      <section>
-        <SectionTitle title="Today’s Schedule" />
+      <section className="space-y-2">
         {dueToday.length === 0 && studiesDueToday.length === 0 ? (
           <EmptyState title="Nothing due today" />
         ) : (
-          <div className="space-y-2">
+          <>
             {dueToday.map((rv) => (
               <Link key={rv.id} href={`/return-visits/${rv.id}`}>
                 <Card className="mb-2 ring-violet-100/80">
@@ -324,85 +323,76 @@ function TodayInner() {
                 </Link>
               );
             })}
-          </div>
+          </>
         )}
-      </section>
 
-      <section>
-        <SectionTitle title="Upcoming" />
-        {!nextReturnVisit && !nextBibleStudy ? (
-          <EmptyState title="Nothing scheduled ahead" />
-        ) : (
-          <div className="space-y-2">
-            {nextReturnVisit && (
-              <Link href={`/return-visits/${nextReturnVisit.id}`}>
-                <Card className="mb-2 ring-violet-100/60">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-violet-800">
-                        Next return visit
-                      </p>
-                      <p className="mt-1 font-medium text-stone-900">
-                        {nextReturnVisit.person?.name ||
-                          people.find((p) => p.id === nextReturnVisit.person_id)
-                            ?.name ||
-                          "Person"}
-                      </p>
-                      <p className="mt-1 text-sm text-stone-500">
-                        {formatDisplayDate(nextReturnVisit.scheduled_date)}
-                        {nextReturnVisit.scheduled_time
-                          ? ` · ${nextReturnVisit.scheduled_time}`
-                          : ""}
-                      </p>
-                      {nextReturnVisit.next_planned_topic && (
-                        <div className="mt-2">
-                          <TopicBadge
-                            topic={nextReturnVisit.next_planned_topic}
-                            tone="amber"
-                          />
-                        </div>
-                      )}
+        {nextReturnVisit && (
+          <Link href={`/return-visits/${nextReturnVisit.id}`}>
+            <Card className="mb-2 ring-violet-100/60">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-violet-800">
+                    Next return visit
+                  </p>
+                  <p className="mt-1 font-medium text-stone-900">
+                    {nextReturnVisit.person?.name ||
+                      people.find((p) => p.id === nextReturnVisit.person_id)
+                        ?.name ||
+                      "Person"}
+                  </p>
+                  <p className="mt-1 text-sm text-stone-500">
+                    {formatDisplayDate(nextReturnVisit.scheduled_date)}
+                    {nextReturnVisit.scheduled_time
+                      ? ` · ${nextReturnVisit.scheduled_time}`
+                      : ""}
+                  </p>
+                  {nextReturnVisit.next_planned_topic && (
+                    <div className="mt-2">
+                      <TopicBadge
+                        topic={nextReturnVisit.next_planned_topic}
+                        tone="amber"
+                      />
                     </div>
-                    <StatusBadge kind="return_visit" />
-                  </div>
-                </Card>
-              </Link>
-            )}
-            {nextBibleStudy && (
-              <Link href={`/bible-studies/${nextBibleStudy.id}`}>
-                <Card className="mb-2 ring-amber-100/70">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
-                        Next Bible study
-                      </p>
-                      <p className="mt-1 font-medium text-stone-900">
-                        {nextBibleStudy.person?.name ||
-                          people.find((p) => p.id === nextBibleStudy.person_id)
-                            ?.name ||
-                          "Student"}
-                      </p>
-                      <p className="mt-1 text-sm text-stone-500">
-                        {formatDisplayDate(nextBibleStudy.next_study_date!)}
-                        {nextBibleStudy.next_study_time
-                          ? ` · ${nextBibleStudy.next_study_time}`
-                          : ""}
-                      </p>
-                      {nextBibleStudy.current_lesson && (
-                        <div className="mt-2">
-                          <TopicBadge
-                            topic={nextBibleStudy.current_lesson}
-                            tone="amber"
-                          />
-                        </div>
-                      )}
+                  )}
+                </div>
+                <StatusBadge kind="return_visit" />
+              </div>
+            </Card>
+          </Link>
+        )}
+        {nextBibleStudy && (
+          <Link href={`/bible-studies/${nextBibleStudy.id}`}>
+            <Card className="mb-2 ring-amber-100/70">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                    Next Bible study
+                  </p>
+                  <p className="mt-1 font-medium text-stone-900">
+                    {nextBibleStudy.person?.name ||
+                      people.find((p) => p.id === nextBibleStudy.person_id)
+                        ?.name ||
+                      "Student"}
+                  </p>
+                  <p className="mt-1 text-sm text-stone-500">
+                    {formatDisplayDate(nextBibleStudy.next_study_date!)}
+                    {nextBibleStudy.next_study_time
+                      ? ` · ${nextBibleStudy.next_study_time}`
+                      : ""}
+                  </p>
+                  {nextBibleStudy.current_lesson && (
+                    <div className="mt-2">
+                      <TopicBadge
+                        topic={nextBibleStudy.current_lesson}
+                        tone="amber"
+                      />
                     </div>
-                    <StatusBadge kind="bible_study" />
-                  </div>
-                </Card>
-              </Link>
-            )}
-          </div>
+                  )}
+                </div>
+                <StatusBadge kind="bible_study" />
+              </div>
+            </Card>
+          </Link>
         )}
       </section>
 

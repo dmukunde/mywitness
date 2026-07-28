@@ -50,33 +50,45 @@ export function syncBibleStudyEventDemo(
   study: BibleStudy
 ): DemoData {
   const now = new Date().toISOString();
-  // Drop planned study events when paused/completed or no next date
-  data.ministryEvents = data.ministryEvents.filter(
-    (e) => !(e.bible_study_id === study.id && e.status === "planned")
+  const existing = data.ministryEvents.find(
+    (e) => e.bible_study_id === study.id && e.status === "planned"
   );
-  if (
-    study.status === "active" &&
-    study.next_study_date
-  ) {
-    const event: ScheduledMinistryEvent = {
-      id: crypto.randomUUID(),
-      user_id: study.user_id,
-      person_id: study.person_id,
-      event_type: "bible_study",
-      return_visit_id: null,
-      bible_study_id: study.id,
-      scheduled_date: study.next_study_date,
-      scheduled_time: study.next_study_time,
-      general_location: study.general_location,
-      topic_or_lesson: study.current_lesson,
-      preparation_notes: study.preparation_notes,
-      status: "planned",
-      is_demo: true,
-      created_at: now,
-      updated_at: now,
-    };
-    data.ministryEvents = [event, ...data.ministryEvents];
+
+  // Clear next date, paused, or completed → cancel/remove future planned event
+  if (!study.next_study_date || study.status !== "active") {
+    if (existing) {
+      const nextStatus =
+        study.status === "completed" ? ("completed" as const) : ("cancelled" as const);
+      data.ministryEvents = data.ministryEvents.map((e) =>
+        e.id === existing.id
+          ? { ...e, status: nextStatus, updated_at: now }
+          : e
+      );
+    }
+    return data;
   }
+
+  const event: ScheduledMinistryEvent = {
+    id: existing?.id || crypto.randomUUID(),
+    user_id: study.user_id,
+    person_id: study.person_id,
+    event_type: "bible_study",
+    return_visit_id: null,
+    bible_study_id: study.id,
+    scheduled_date: study.next_study_date,
+    scheduled_time: study.next_study_time,
+    general_location: study.general_location,
+    topic_or_lesson: study.current_lesson,
+    preparation_notes: study.preparation_notes,
+    status: "planned",
+    is_demo: true,
+    created_at: existing?.created_at || now,
+    updated_at: now,
+  };
+
+  data.ministryEvents = existing
+    ? data.ministryEvents.map((e) => (e.id === existing.id ? event : e))
+    : [event, ...data.ministryEvents];
   return data;
 }
 
@@ -120,26 +132,46 @@ export async function upsertBibleStudyEventSupabase(
   study: BibleStudy
 ) {
   const supabase = createClient();
-  await supabase
+  const { data: existing } = await supabase
     .from("scheduled_ministry_events")
-    .delete()
+    .select("id")
     .eq("bible_study_id", study.id)
-    .eq("status", "planned");
+    .eq("status", "planned")
+    .maybeSingle();
 
-  if (study.status === "active" && study.next_study_date) {
-    await supabase.from("scheduled_ministry_events").insert({
-      user_id: userId,
-      person_id: study.person_id,
-      event_type: "bible_study",
-      return_visit_id: null,
-      bible_study_id: study.id,
-      scheduled_date: study.next_study_date,
-      scheduled_time: study.next_study_time,
-      general_location: study.general_location,
-      topic_or_lesson: study.current_lesson,
-      preparation_notes: study.preparation_notes,
-      status: "planned",
-    });
+  if (!study.next_study_date || study.status !== "active") {
+    if (existing?.id) {
+      await supabase
+        .from("scheduled_ministry_events")
+        .update({
+          status: study.status === "completed" ? "completed" : "cancelled",
+        })
+        .eq("id", existing.id);
+    }
+    return;
+  }
+
+  const payload = {
+    user_id: userId,
+    person_id: study.person_id,
+    event_type: "bible_study" as const,
+    return_visit_id: null,
+    bible_study_id: study.id,
+    scheduled_date: study.next_study_date,
+    scheduled_time: study.next_study_time,
+    general_location: study.general_location,
+    topic_or_lesson: study.current_lesson,
+    preparation_notes: study.preparation_notes,
+    status: "planned" as const,
+  };
+
+  if (existing?.id) {
+    await supabase
+      .from("scheduled_ministry_events")
+      .update(payload)
+      .eq("id", existing.id);
+  } else {
+    await supabase.from("scheduled_ministry_events").insert(payload);
   }
 }
 
@@ -365,11 +397,11 @@ export async function saveBibleStudyRemote(
       .select()
       .maybeSingle();
     if (rv) {
-      await upsertReturnVisitEventSupabase(userId, rv as ReturnVisit);
+      await safeSync(() => upsertReturnVisitEventSupabase(userId, rv as ReturnVisit));
     }
   }
 
-  await upsertBibleStudyEventSupabase(userId, study);
+  await safeSync(() => upsertBibleStudyEventSupabase(userId, study));
   return study;
 }
 
@@ -433,7 +465,7 @@ export async function saveStudySessionRemote(
     .single();
   if (updErr) throw updErr;
 
-  await upsertBibleStudyEventSupabase(userId, updated as BibleStudy);
+  await safeSync(() => upsertBibleStudyEventSupabase(userId, updated as BibleStudy));
   return {
     session: session as BibleStudySession,
     study: updated as BibleStudy,
@@ -442,4 +474,13 @@ export async function saveStudySessionRemote(
 
 export function personName(people: Person[], id: string) {
   return people.find((p) => p.id === id)?.name || "Person";
+}
+
+/** Calendar-event sync is best-effort — never let it block the underlying save. */
+async function safeSync(fn: () => Promise<unknown>) {
+  try {
+    await fn();
+  } catch (e) {
+    console.warn("Calendar sync skipped (run migration 005?):", e);
+  }
 }

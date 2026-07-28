@@ -17,11 +17,11 @@ import {
   TopicBadge,
 } from "@/components/badges";
 import {
+  isStudyOverdue,
   studyProgressLabel,
   studyProgressPercent,
 } from "@/lib/bible-study";
-import { formatDisplayDate, parseScriptures } from "@/lib/utils";
-import { STUDY_FREQUENCY_LABELS } from "@/lib/types";
+import { formatDisplayDate, parseScriptures, todayISO } from "@/lib/utils";
 
 export default function BibleStudyProfilePage() {
   const params = useParams<{ id: string }>();
@@ -50,7 +50,6 @@ export default function BibleStudyProfilePage() {
   const [scheduling, setScheduling] = useState(false);
   const [nextDate, setNextDate] = useState("");
   const [nextTime, setNextTime] = useState("");
-  const [totalLessons, setTotalLessons] = useState<number | null>(null);
 
   if (!study) {
     return (
@@ -66,6 +65,7 @@ export default function BibleStudyProfilePage() {
   }
 
   const pct = studyProgressPercent(study);
+  const overdue = isStudyOverdue(study, todayISO());
   const statusKind =
     study.status === "active"
       ? "study_active"
@@ -82,7 +82,7 @@ export default function BibleStudyProfilePage() {
         starting_lesson: study.starting_lesson || "",
         current_lesson: study.current_lesson || "",
         current_lesson_number: study.current_lesson_number,
-        total_lessons: totalLessons ?? study.total_lessons,
+        total_lessons: study.total_lessons,
         study_frequency: study.study_frequency,
         preferred_day: study.preferred_day || "",
         preferred_time: study.preferred_time || "",
@@ -100,40 +100,18 @@ export default function BibleStudyProfilePage() {
     setScheduling(false);
   };
 
-  const saveTotal = async () => {
-    if (totalLessons == null) return;
-    await saveBibleStudy(
-      {
-        person_id: study.person_id,
-        publication: study.publication,
-        starting_lesson: study.starting_lesson || "",
-        current_lesson: study.current_lesson || "",
-        current_lesson_number: study.current_lesson_number,
-        total_lessons: totalLessons,
-        study_frequency: study.study_frequency,
-        preferred_day: study.preferred_day || "",
-        preferred_time: study.preferred_time || "",
-        first_study_date: study.first_study_date || "",
-        next_study_date: study.next_study_date || "",
-        next_study_time: study.next_study_time || "",
-        general_location: study.general_location || "",
-        status: study.status,
-        preparation_notes: study.preparation_notes || "",
-        private_notes: study.private_notes || "",
-        source_return_visit_id: study.source_return_visit_id || "",
-      },
-      study.id
-    );
-    setTotalLessons(null);
-  };
-
   return (
     <div className="animate-fade-up space-y-5">
       <PageHeader
         title={person?.name || "Bible Study"}
         subtitle={study.publication}
         accent="gold"
-        action={<StatusBadge kind={statusKind} />}
+        action={
+          <div className="flex flex-col items-end gap-1.5">
+            <StatusBadge kind={statusKind} />
+            {overdue && <StatusBadge kind="overdue" />}
+          </div>
+        }
       />
 
       <Card className="space-y-3 ring-amber-100">
@@ -149,31 +127,10 @@ export default function BibleStudyProfilePage() {
             style={{ width: `${pct}%` }}
           />
         </div>
-        <div className="flex items-end gap-2">
-          <Input
-            label="Total lessons in publication"
-            type="number"
-            min={1}
-            value={totalLessons ?? study.total_lessons}
-            onChange={(e) => setTotalLessons(Number(e.target.value) || 1)}
-          />
-          <Button
-            size="sm"
-            variant="secondary"
-            className="mb-0.5"
-            onClick={() => void saveTotal()}
-          >
-            Update
-          </Button>
-        </div>
       </Card>
 
       <Card className="space-y-2 text-sm ring-amber-50">
         <Row label="Current lesson" value={study.current_lesson} />
-        <Row
-          label="Frequency"
-          value={STUDY_FREQUENCY_LABELS[study.study_frequency]}
-        />
         <Row
           label="Next study"
           value={
@@ -219,7 +176,7 @@ export default function BibleStudyProfilePage() {
             setScheduling(true);
           }}
         >
-          Schedule next study
+          {overdue ? "Reschedule study" : "Schedule next study"}
         </Button>
         {study.status === "active" && (
           <Button

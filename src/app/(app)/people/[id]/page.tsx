@@ -249,16 +249,20 @@ export default function PersonProfilePage() {
           )}
         </div>
         <Row label="Key questions" value={person.key_questions} />
-        <Row
-          label="Next visit"
-          value={
-            nextVisit
-              ? `${formatDisplayDate(nextVisit.scheduled_date)}${
-                  nextVisit.scheduled_time ? ` · ${nextVisit.scheduled_time}` : ""
-                }`
-              : null
-          }
-        />
+        {nextVisit ? (
+          <Link
+            href={`/return-visits/${nextVisit.id}`}
+            className="flex justify-between gap-3"
+          >
+            <span className="text-stone-400">Next visit</span>
+            <span className="text-right text-emerald-800 underline decoration-emerald-200 underline-offset-2">
+              {formatDisplayDate(nextVisit.scheduled_date)}
+              {nextVisit.scheduled_time ? ` · ${nextVisit.scheduled_time}` : ""}
+            </span>
+          </Link>
+        ) : (
+          <Row label="Next visit" value={null} />
+        )}
         {person.private_notes && (
           <div className="pt-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">

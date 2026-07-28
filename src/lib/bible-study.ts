@@ -1,4 +1,14 @@
+import { isBefore, parseISO } from "date-fns";
 import type { BibleStudy } from "@/lib/types";
+
+/** Overdue = still active, has a next study date, and that date has passed. */
+export function isStudyOverdue(study: BibleStudy, today: string): boolean {
+  return (
+    study.status === "active" &&
+    !!study.next_study_date &&
+    isBefore(parseISO(study.next_study_date), parseISO(today))
+  );
+}
 
 /** Progress 0–100 from lesson number / total (user-editable total). */
 export function studyProgressPercent(study: Pick<

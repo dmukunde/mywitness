@@ -13,17 +13,19 @@ import {
 } from "@/components/ui";
 import { StatusBadge } from "@/components/badges";
 import {
+  isStudyOverdue,
   studyProgressLabel,
   studyProgressPercent,
 } from "@/lib/bible-study";
-import { formatDisplayDate } from "@/lib/utils";
+import { formatDisplayDate, todayISO } from "@/lib/utils";
 import type { BibleStudy, BibleStudyStatus } from "@/lib/types";
 
 type SortKey = "next" | "recent" | "name" | "progress";
-type FilterKey = "all" | BibleStudyStatus;
+type FilterKey = "all" | BibleStudyStatus | "overdue";
 
 export default function BibleStudiesPage() {
   const { bibleStudies, people } = useApp();
+  const today = todayISO();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [sort, setSort] = useState<SortKey>("next");
@@ -41,8 +43,9 @@ export default function BibleStudiesPage() {
       active: bibleStudies.filter((s) => s.status === "active").length,
       paused: bibleStudies.filter((s) => s.status === "paused").length,
       completed: bibleStudies.filter((s) => s.status === "completed").length,
+      overdue: bibleStudies.filter((s) => isStudyOverdue(s, today)).length,
     };
-  }, [bibleStudies]);
+  }, [bibleStudies, today]);
 
   const filtered = useMemo(() => {
     let list = enriched;
@@ -61,7 +64,9 @@ export default function BibleStudiesPage() {
           .includes(q)
       );
     }
-    if (filter !== "all") {
+    if (filter === "overdue") {
+      list = list.filter(({ study }) => isStudyOverdue(study, today));
+    } else if (filter !== "all") {
       list = list.filter(({ study }) => study.status === filter);
     }
     list = [...list].sort((a, b) => {
@@ -83,7 +88,7 @@ export default function BibleStudiesPage() {
       );
     });
     return list;
-  }, [enriched, filter, query, sort]);
+  }, [enriched, filter, query, sort, today]);
 
   return (
     <div className="animate-fade-up space-y-5">
@@ -101,10 +106,11 @@ export default function BibleStudiesPage() {
         }
       />
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-4 gap-2">
         <SummaryChip label="Active" value={counts.active} />
         <SummaryChip label="Paused" value={counts.paused} />
         <SummaryChip label="Completed" value={counts.completed} />
+        <SummaryChip label="Overdue" value={counts.overdue} tone="rose" />
       </div>
 
       <div className="space-y-3">
@@ -126,6 +132,7 @@ export default function BibleStudiesPage() {
             <option value="active">Active</option>
             <option value="paused">Paused</option>
             <option value="completed">Completed</option>
+            <option value="overdue">Overdue</option>
           </Select>
           <Select
             value={sort}
@@ -158,6 +165,7 @@ export default function BibleStudiesPage() {
               key={study.id}
               study={study}
               name={person?.name || "Student"}
+              overdue={isStudyOverdue(study, today)}
             />
           ))}
         </div>
@@ -166,18 +174,38 @@ export default function BibleStudiesPage() {
   );
 }
 
-function SummaryChip({ label, value }: { label: string; value: number }) {
+function SummaryChip({
+  label,
+  value,
+  tone = "amber",
+}: {
+  label: string;
+  value: number;
+  tone?: "amber" | "rose";
+}) {
+  const toneClasses =
+    tone === "rose"
+      ? "bg-rose-50 ring-rose-200/70 text-rose-800/80 [&_.chip-value]:text-rose-950"
+      : "bg-amber-50 ring-amber-200/70 text-amber-800/80 [&_.chip-value]:text-amber-950";
   return (
-    <div className="rounded-2xl bg-amber-50 px-3 py-3 text-center ring-1 ring-amber-200/70">
-      <p className="text-xs font-medium text-amber-800/80">{label}</p>
-      <p className="mt-1 font-display text-xl font-semibold text-amber-950">
+    <div className={`rounded-2xl px-3 py-3 text-center ring-1 ${toneClasses}`}>
+      <p className="text-xs font-medium">{label}</p>
+      <p className="chip-value mt-1 font-display text-xl font-semibold">
         {value}
       </p>
     </div>
   );
 }
 
-function StudyCard({ study, name }: { study: BibleStudy; name: string }) {
+function StudyCard({
+  study,
+  name,
+  overdue,
+}: {
+  study: BibleStudy;
+  name: string;
+  overdue: boolean;
+}) {
   const pct = studyProgressPercent(study);
   const statusKind =
     study.status === "active"
@@ -188,7 +216,7 @@ function StudyCard({ study, name }: { study: BibleStudy; name: string }) {
 
   return (
     <Link href={`/bible-studies/${study.id}`}>
-      <Card className="mb-2 ring-amber-100/80">
+      <Card className={`mb-2 ring-amber-100/80 ${overdue ? "ring-rose-200" : ""}`}>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="font-medium text-stone-900">{name}</p>
@@ -227,7 +255,10 @@ function StudyCard({ study, name }: { study: BibleStudy; name: string }) {
               </div>
             </div>
           </div>
-          <StatusBadge kind={statusKind} />
+          <div className="flex flex-col items-end gap-1.5">
+            <StatusBadge kind={statusKind} />
+            {overdue && <StatusBadge kind="overdue" />}
+          </div>
         </div>
       </Card>
     </Link>

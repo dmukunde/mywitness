@@ -4,12 +4,11 @@ import { Button, Input, Select, Textarea } from "@/components/ui";
 import {
   BIBLE_STUDY_STATUS_LABELS,
   EMPTY_BIBLE_STUDY_FORM,
-  STUDY_FREQUENCY_LABELS,
   type BibleStudyFormData,
   type BibleStudyStatus,
   type Person,
-  type StudyFrequency,
 } from "@/lib/types";
+import { parseLessonNumber } from "@/lib/bible-study";
 import { useState } from "react";
 
 type Props = {
@@ -48,7 +47,21 @@ export function BibleStudyForm({
     setSaving(true);
     setError(null);
     try {
-      await onSubmit(form, { allowDuplicate });
+      // Keep lesson # / total / frequency in the payload for DB compatibility,
+      // inferring number from the current lesson text when possible.
+      const lessonNum =
+        parseLessonNumber(form.current_lesson) ||
+        form.current_lesson_number ||
+        1;
+      await onSubmit(
+        {
+          ...form,
+          current_lesson_number: lessonNum,
+          total_lessons: form.total_lessons || 60,
+          study_frequency: form.study_frequency || "weekly",
+        },
+        { allowDuplicate }
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Could not save.";
       if (msg.startsWith("DUPLICATE_EVENT:")) {
@@ -77,7 +90,7 @@ export function BibleStudyForm({
       </Select>
 
       <Input
-        label="Study publication or material"
+        label="Study publication"
         value={form.publication}
         onChange={(e) => update("publication", e.target.value)}
         placeholder="Enjoy Life Forever!"
@@ -95,41 +108,6 @@ export function BibleStudyForm({
           onChange={(e) => update("current_lesson", e.target.value)}
         />
       </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <Input
-          label="Current lesson #"
-          type="number"
-          min={0}
-          value={form.current_lesson_number}
-          onChange={(e) =>
-            update("current_lesson_number", Number(e.target.value) || 0)
-          }
-        />
-        <Input
-          label="Total lessons"
-          type="number"
-          min={1}
-          value={form.total_lessons}
-          onChange={(e) =>
-            update("total_lessons", Number(e.target.value) || 1)
-          }
-        />
-      </div>
-
-      <Select
-        label="Study frequency"
-        value={form.study_frequency}
-        onChange={(e) =>
-          update("study_frequency", e.target.value as StudyFrequency)
-        }
-      >
-        {(Object.keys(STUDY_FREQUENCY_LABELS) as StudyFrequency[]).map((k) => (
-          <option key={k} value={k}>
-            {STUDY_FREQUENCY_LABELS[k]}
-          </option>
-        ))}
-      </Select>
 
       <div className="grid grid-cols-2 gap-3">
         <Input

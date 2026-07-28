@@ -1041,7 +1041,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const { upsertBibleStudyEventSupabase } = await import(
         "@/lib/ministry-api"
       );
-      await upsertBibleStudyEventSupabase(user!.id, data as BibleStudy);
+      try {
+        await upsertBibleStudyEventSupabase(user!.id, data as BibleStudy);
+      } catch (e) {
+        console.warn("Calendar sync skipped (run migration 005?):", e);
+      }
       await refresh();
     },
     [applyDemo, demoMode, refresh, user]
