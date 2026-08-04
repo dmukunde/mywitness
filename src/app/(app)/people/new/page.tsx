@@ -16,6 +16,7 @@ import { AreaField } from "@/components/AreaField";
 import { INTEREST_LEVEL_ORDER } from "@/components/InterestBadge";
 import { INTEREST_LABELS, type InterestLevel } from "@/lib/types";
 import { todayISO } from "@/lib/utils";
+import { formatDbError } from "@/lib/db-errors";
 
 export default function NewPersonPage() {
   const { savePerson, areas, findOrCreateArea } = useApp();
@@ -58,7 +59,7 @@ export default function NewPersonPage() {
       });
       router.replace(`/people/${person.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save person.");
+      setError(formatDbError("save person", err, "Could not save person."));
       setSaving(false);
     }
   };

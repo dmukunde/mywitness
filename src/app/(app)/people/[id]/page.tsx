@@ -27,6 +27,7 @@ import {
 } from "@/components/badges";
 import { formatDisplayDate } from "@/lib/utils";
 import { INTEREST_LABELS, type InterestLevel } from "@/lib/types";
+import { formatDbError } from "@/lib/db-errors";
 
 export default function PersonProfilePage() {
   const params = useParams<{ id: string }>();
@@ -75,6 +76,8 @@ export default function PersonProfilePage() {
   });
   const [coords, setCoords] = useState<LocationCoords | null>(null);
   const [areaName, setAreaName] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   if (!person) {
     return (
@@ -107,27 +110,40 @@ export default function PersonProfilePage() {
         : null
     );
     setAreaName(person.area?.name || "");
+    setEditError(null);
     setEditing(true);
   };
 
   const saveEdit = async () => {
-    const areaId = await findOrCreateArea(areaName);
-    await savePerson({
-      id: person.id,
-      name: form.name,
-      general_location: form.general_location || null,
-      location_lat: coords?.lat ?? null,
-      location_lng: coords?.lng ?? null,
-      area_id: areaId,
-      phone_number: form.phone_number || null,
-      preferred_contact_time: form.preferred_contact_time || null,
-      first_met_date: form.first_met_date || null,
-      interest_level: form.interest_level || "unknown",
-      current_discussion_theme: form.current_discussion_theme || null,
-      key_questions: form.key_questions || null,
-      private_notes: form.private_notes || null,
-    });
-    setEditing(false);
+    if (!form.name.trim()) {
+      setEditError("Name is required.");
+      return;
+    }
+    setSavingEdit(true);
+    setEditError(null);
+    try {
+      const areaId = await findOrCreateArea(areaName);
+      await savePerson({
+        id: person.id,
+        name: form.name,
+        general_location: form.general_location || null,
+        location_lat: coords?.lat ?? null,
+        location_lng: coords?.lng ?? null,
+        area_id: areaId,
+        phone_number: form.phone_number || null,
+        preferred_contact_time: form.preferred_contact_time || null,
+        first_met_date: form.first_met_date || null,
+        interest_level: form.interest_level || "unknown",
+        current_discussion_theme: form.current_discussion_theme || null,
+        key_questions: form.key_questions || null,
+        private_notes: form.private_notes || null,
+      });
+      setEditing(false);
+    } catch (err) {
+      setEditError(formatDbError("save person", err, "Could not save changes."));
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const handleArchive = async () => {
@@ -240,10 +256,20 @@ export default function PersonProfilePage() {
           value={form.private_notes}
           onChange={(e) => setForm({ ...form, private_notes: e.target.value })}
         />
-        <Button className="w-full" onClick={saveEdit}>
-          Save changes
+        {editError && (
+          <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {editError}
+          </p>
+        )}
+        <Button className="w-full" disabled={savingEdit} onClick={() => void saveEdit()}>
+          {savingEdit ? "Saving…" : "Save changes"}
         </Button>
-        <Button variant="ghost" className="w-full" onClick={() => setEditing(false)}>
+        <Button
+          variant="ghost"
+          className="w-full"
+          disabled={savingEdit}
+          onClick={() => setEditing(false)}
+        >
           Cancel
         </Button>
       </div>
