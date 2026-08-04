@@ -12,16 +12,19 @@ import {
   Textarea,
   type LocationCoords,
 } from "@/components/ui";
+import { AreaField } from "@/components/AreaField";
 import { INTEREST_LEVEL_ORDER } from "@/components/InterestBadge";
 import { INTEREST_LABELS, type InterestLevel } from "@/lib/types";
 import { todayISO } from "@/lib/utils";
 
 export default function NewPersonPage() {
-  const { savePerson } = useApp();
+  const { savePerson, areas, findOrCreateArea } = useApp();
   const router = useRouter();
   const [name, setName] = useState("");
   const [location, setLocation] = useState("");
   const [coords, setCoords] = useState<LocationCoords | null>(null);
+  const [areaName, setAreaName] = useState("");
+  const [phone, setPhone] = useState("");
   const [preferredTime, setPreferredTime] = useState("");
   const [firstMet, setFirstMet] = useState(todayISO());
   const [interest, setInterest] = useState<InterestLevel | "">("");
@@ -38,11 +41,14 @@ export default function NewPersonPage() {
     }
     setSaving(true);
     try {
+      const areaId = await findOrCreateArea(areaName);
       const person = await savePerson({
         name: name.trim(),
         general_location: location || null,
         location_lat: coords?.lat ?? null,
         location_lng: coords?.lng ?? null,
+        area_id: areaId,
+        phone_number: phone || null,
         preferred_contact_time: preferredTime || null,
         first_met_date: firstMet || todayISO(),
         interest_level: interest || "unknown",
@@ -67,6 +73,15 @@ export default function NewPersonPage() {
         coords={coords}
         onCoordsChange={setCoords}
         placeholder="Near the pharmacy"
+      />
+      <AreaField value={areaName} onChange={setAreaName} areas={areas} />
+      <Input
+        label="Phone number"
+        type="tel"
+        value={phone}
+        onChange={(e) => setPhone(e.target.value)}
+        placeholder="0772 123456"
+        hint="Used for the WhatsApp button on this person's profile."
       />
       <Input
         label="Preferred contact or visit time"

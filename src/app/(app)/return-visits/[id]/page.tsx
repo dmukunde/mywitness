@@ -25,6 +25,8 @@ import {
   statusKindFromReturnVisit,
 } from "@/components/badges";
 import { InterestBadge } from "@/components/InterestBadge";
+import { WhatsAppButton } from "@/components/WhatsAppButton";
+import { PersonPhotoGallery } from "@/components/PersonPhotoGallery";
 import { isBefore, parseISO } from "date-fns";
 
 export default function ReturnVisitPrepPage() {
@@ -164,6 +166,12 @@ export default function ReturnVisitPrepPage() {
           </a>
         )}
       </Card>
+
+      {person?.phone_number && (
+        <WhatsAppButton phoneNumber={person.phone_number} personName={person.name} />
+      )}
+
+      {person && <PersonPhotoGallery personId={person.id} readOnly />}
 
       <div className="space-y-2">
         {visit.status === "planned" && (

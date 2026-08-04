@@ -12,6 +12,7 @@ import {
   SectionTitle,
 } from "@/components/ui";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { BackupRestore } from "@/components/BackupRestore";
 import { todayISO } from "@/lib/utils";
 
 export default function SettingsPage() {
@@ -455,36 +456,26 @@ export default function SettingsPage() {
       </section>
 
       <section>
-        <SectionTitle title="Your data" />
-        <div className="space-y-2">
-          <Button variant="secondary" className="w-full" onClick={exportData}>
-            Export account data (JSON)
-          </Button>
-          {isSupabaseConfigured() && !demoMode && (
-            <Button
-              variant="secondary"
-              className="w-full"
-              onClick={async () => {
-                const res = await fetch("/api/export");
-                if (!res.ok) {
-                  setMessage("Export failed.");
-                  return;
-                }
-                const data = await res.json();
-                const blob = new Blob([JSON.stringify(data, null, 2)], {
-                  type: "application/json",
-                });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `mywitness-server-export-${todayISO()}.json`;
-                a.click();
-                URL.revokeObjectURL(url);
-              }}
-            >
-              Export from server
+        <SectionTitle title="Backup & Restore" />
+        {isSupabaseConfigured() && !demoMode ? (
+          <BackupRestore />
+        ) : (
+          <Card className="space-y-2">
+            <p className="text-sm text-stone-600">
+              {demoMode
+                ? "Backup and restore aren't available in demo mode — sign in with a real account to back up your data."
+                : "Sign in to back up your data."}
+            </p>
+            <Button variant="secondary" className="w-full" onClick={exportData}>
+              Export demo data (JSON)
             </Button>
-          )}
+          </Card>
+        )}
+      </section>
+
+      <section>
+        <SectionTitle title="Account" />
+        <div className="space-y-2">
           <Button variant="ghost" className="w-full" onClick={handleSignOut}>
             Sign out
           </Button>

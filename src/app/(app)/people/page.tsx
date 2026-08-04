@@ -20,9 +20,10 @@ import { isBefore, parseISO } from "date-fns";
 type SortKey = "recent" | "upcoming" | "overdue" | "name";
 
 export default function PeoplePage() {
-  const { people, conversations, returnVisits } = useApp();
+  const { people, conversations, returnVisits, areas } = useApp();
   const [query, setQuery] = useState("");
   const [interestFilter, setInterestFilter] = useState("all");
+  const [areaFilter, setAreaFilter] = useState("all");
   const [sort, setSort] = useState<SortKey>("recent");
   const today = todayISO();
 
@@ -68,6 +69,9 @@ export default function PeoplePage() {
         (item) => item.person.interest_level === interestFilter
       );
     }
+    if (areaFilter !== "all") {
+      list = list.filter((item) => item.person.area_id === areaFilter);
+    }
 
     list = [...list].sort((a, b) => {
       if (sort === "name") return a.person.name.localeCompare(b.person.name);
@@ -89,7 +93,7 @@ export default function PeoplePage() {
     });
 
     return list;
-  }, [enriched, query, interestFilter, sort]);
+  }, [enriched, query, interestFilter, areaFilter, sort]);
 
   return (
     <div className="animate-fade-up">
@@ -97,12 +101,19 @@ export default function PeoplePage() {
         title="People"
         subtitle="Everyone you've recorded"
         action={
-          <Link href="/people/new">
-            <Button size="sm">
-              <Plus className="h-4 w-4" />
-              Add
-            </Button>
-          </Link>
+          <div className="flex gap-2">
+            <Link href="/areas">
+              <Button variant="secondary" size="sm">
+                Areas
+              </Button>
+            </Link>
+            <Link href="/people/new">
+              <Button size="sm">
+                <Plus className="h-4 w-4" />
+                Add
+              </Button>
+            </Link>
+          </div>
         }
       />
 
@@ -138,6 +149,17 @@ export default function PeoplePage() {
             <option value="name">Sort: Name</option>
           </Select>
         </div>
+        <Select
+          value={areaFilter}
+          onChange={(e) => setAreaFilter(e.target.value)}
+        >
+          <option value="all">All areas</option>
+          {areas.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </Select>
       </div>
 
       {filtered.length === 0 ? (

@@ -24,10 +24,11 @@ type SortKey = "next" | "recent" | "name" | "progress";
 type FilterKey = "all" | BibleStudyStatus | "overdue";
 
 export default function BibleStudiesPage() {
-  const { bibleStudies, people } = useApp();
+  const { bibleStudies, people, areas } = useApp();
   const today = todayISO();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
+  const [areaFilter, setAreaFilter] = useState("all");
   const [sort, setSort] = useState<SortKey>("next");
 
   const enriched = useMemo(() => {
@@ -69,6 +70,9 @@ export default function BibleStudiesPage() {
     } else if (filter !== "all") {
       list = list.filter(({ study }) => study.status === filter);
     }
+    if (areaFilter !== "all") {
+      list = list.filter(({ person }) => person?.area_id === areaFilter);
+    }
     list = [...list].sort((a, b) => {
       if (sort === "name") {
         return (a.person?.name || "").localeCompare(b.person?.name || "");
@@ -88,7 +92,7 @@ export default function BibleStudiesPage() {
       );
     });
     return list;
-  }, [enriched, filter, query, sort, today]);
+  }, [enriched, filter, query, areaFilter, sort, today]);
 
   return (
     <div className="animate-fade-up space-y-5">
@@ -144,6 +148,16 @@ export default function BibleStudiesPage() {
             <option value="progress">Sort: Progress</option>
           </Select>
         </div>
+        {areas.length > 0 && (
+          <Select value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)}>
+            <option value="all">All areas</option>
+            {areas.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </Select>
+        )}
       </div>
 
       {filtered.length === 0 ? (

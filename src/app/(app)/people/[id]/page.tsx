@@ -16,6 +16,9 @@ import {
   Textarea,
   type LocationCoords,
 } from "@/components/ui";
+import { AreaField } from "@/components/AreaField";
+import { WhatsAppButton } from "@/components/WhatsAppButton";
+import { PersonPhotoGallery } from "@/components/PersonPhotoGallery";
 import { InterestBadge, INTEREST_LEVEL_ORDER } from "@/components/InterestBadge";
 import {
   ScriptureBadgeList,
@@ -33,9 +36,11 @@ export default function PersonProfilePage() {
     conversations,
     returnVisits,
     bibleStudies,
+    areas,
     archivePerson,
     savePerson,
     createReturnVisit,
+    findOrCreateArea,
   } = useApp();
   const [editing, setEditing] = useState(false);
   const [archiving, setArchiving] = useState(false);
@@ -66,8 +71,10 @@ export default function PersonProfilePage() {
     current_discussion_theme: "",
     key_questions: "",
     private_notes: "",
+    phone_number: "",
   });
   const [coords, setCoords] = useState<LocationCoords | null>(null);
+  const [areaName, setAreaName] = useState("");
 
   if (!person) {
     return (
@@ -92,22 +99,27 @@ export default function PersonProfilePage() {
       current_discussion_theme: person.current_discussion_theme || "",
       key_questions: person.key_questions || "",
       private_notes: person.private_notes || "",
+      phone_number: person.phone_number || "",
     });
     setCoords(
       person.location_lat != null && person.location_lng != null
         ? { lat: person.location_lat, lng: person.location_lng }
         : null
     );
+    setAreaName(person.area?.name || "");
     setEditing(true);
   };
 
   const saveEdit = async () => {
+    const areaId = await findOrCreateArea(areaName);
     await savePerson({
       id: person.id,
       name: form.name,
       general_location: form.general_location || null,
       location_lat: coords?.lat ?? null,
       location_lng: coords?.lng ?? null,
+      area_id: areaId,
+      phone_number: form.phone_number || null,
       preferred_contact_time: form.preferred_contact_time || null,
       first_met_date: form.first_met_date || null,
       interest_level: form.interest_level || "unknown",
@@ -171,6 +183,15 @@ export default function PersonProfilePage() {
           onChange={(value) => setForm({ ...form, general_location: value })}
           coords={coords}
           onCoordsChange={setCoords}
+        />
+        <AreaField value={areaName} onChange={setAreaName} areas={areas} />
+        <Input
+          label="Phone number"
+          type="tel"
+          value={form.phone_number}
+          onChange={(e) => setForm({ ...form, phone_number: e.target.value })}
+          placeholder="0772 123456"
+          hint="Used for the WhatsApp button on this person's profile."
         />
         <Input
           label="Preferred contact time"
@@ -251,6 +272,19 @@ export default function PersonProfilePage() {
       {person.is_demo && <StatusBadge kind="demo" label="Demo data" />}
 
       <Card className="space-y-2 text-sm">
+        {person.area ? (
+          <Link
+            href={`/areas/${person.area.id}`}
+            className="flex justify-between gap-3"
+          >
+            <span className="text-stone-500">Area</span>
+            <span className="text-right text-emerald-800 underline decoration-emerald-200 underline-offset-2">
+              {person.area.name}
+            </span>
+          </Link>
+        ) : (
+          <Row label="Area" value={null} />
+        )}
         <Row label="Preferred time" value={person.preferred_contact_time} />
         <Row
           label="First met"
@@ -292,6 +326,10 @@ export default function PersonProfilePage() {
           </div>
         )}
       </Card>
+
+      <WhatsAppButton phoneNumber={person.phone_number} personName={person.name} />
+
+      <PersonPhotoGallery personId={person.id} />
 
       <div className="grid grid-cols-2 gap-2">
         <Link href={`/conversations/record?personId=${person.id}`}>

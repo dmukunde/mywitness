@@ -1,10 +1,12 @@
 import type {
+  Area,
   BibleStudy,
   BibleStudySession,
   Conversation,
   ConversationScripture,
   MinistrySession,
   Person,
+  PersonPhoto,
   Reminder,
   ReturnVisit,
   ScheduledMinistryEvent,
@@ -66,6 +68,8 @@ export function createDemoData() {
       general_location: "Near the pharmacy",
       location_lat: null,
       location_lng: null,
+      area_id: "demo-area-kiwatule",
+      phone_number: "0772123456",
       preferred_contact_time: "Saturday afternoon",
       first_met_date: lastWeekISO,
       interest_level: "high",
@@ -84,6 +88,8 @@ export function createDemoData() {
       general_location: "Park bench on Main Street",
       location_lat: null,
       location_lng: null,
+      area_id: "demo-area-ntinda",
+      phone_number: null,
       preferred_contact_time: "Weekday mornings",
       first_met_date: yesterdayISO,
       interest_level: "moderate",
@@ -102,6 +108,8 @@ export function createDemoData() {
       general_location: "Apartment complex lobby",
       location_lat: null,
       location_lng: null,
+      area_id: "demo-area-naalya",
+      phone_number: "+256701234567",
       preferred_contact_time: "Tuesday evenings",
       first_met_date: lastWeekISO,
       interest_level: "very_high",
@@ -120,6 +128,8 @@ export function createDemoData() {
       general_location: "Oak Street apartments",
       location_lat: null,
       location_lng: null,
+      area_id: "demo-area-kiwatule",
+      phone_number: null,
       preferred_contact_time: "Tuesday mornings",
       first_met_date: lastWeekISO,
       interest_level: "very_high",
@@ -332,11 +342,50 @@ export function createDemoData() {
       companion: null,
       area: "Downtown",
       personal_reflection: "Encouraging conversations. Joan seemed comforted.",
+      source: "manual",
       is_demo: true,
       created_at: yesterday.toISOString(),
       updated_at: yesterday.toISOString(),
     },
   ];
+
+  const areas: Area[] = [
+    {
+      id: "demo-area-kiwatule",
+      user_id: DEMO_USER,
+      name: "Kiwatule",
+      landmark_notes: null,
+      map_link: null,
+      location_lat: null,
+      location_lng: null,
+      created_at: lastWeek.toISOString(),
+      updated_at: lastWeek.toISOString(),
+    },
+    {
+      id: "demo-area-ntinda",
+      user_id: DEMO_USER,
+      name: "Ntinda",
+      landmark_notes: null,
+      map_link: null,
+      location_lat: null,
+      location_lng: null,
+      created_at: lastWeek.toISOString(),
+      updated_at: lastWeek.toISOString(),
+    },
+    {
+      id: "demo-area-naalya",
+      user_id: DEMO_USER,
+      name: "Naalya",
+      landmark_notes: null,
+      map_link: null,
+      location_lat: null,
+      location_lng: null,
+      created_at: lastWeek.toISOString(),
+      updated_at: lastWeek.toISOString(),
+    },
+  ];
+
+  const personPhotos: PersonPhoto[] = [];
 
   const reminders: Reminder[] = [
     {
@@ -379,12 +428,14 @@ export function createDemoData() {
     bibleStudies,
     studySessions,
     ministryEvents,
+    areas,
+    personPhotos,
   };
 }
 
 export type DemoData = ReturnType<typeof createDemoData>;
 
-/** Upgrade older localStorage demo payloads that predate Bible Studies. */
+/** Upgrade older localStorage demo payloads that predate Bible Studies / Areas / Photos. */
 export function normalizeDemoData(raw: Partial<DemoData> | null | undefined): DemoData {
   const fresh = createDemoData();
   if (!raw) return fresh;
@@ -402,5 +453,7 @@ export function normalizeDemoData(raw: Partial<DemoData> | null | undefined): De
       raw.ministryEvents?.length
         ? raw.ministryEvents
         : eventsFromReturnVisits(returnVisits),
+    areas: raw.areas || fresh.areas,
+    personPhotos: raw.personPhotos || [],
   };
 }

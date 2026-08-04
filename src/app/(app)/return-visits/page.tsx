@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useApp } from "@/lib/app-context";
-import { Card, EmptyState, PageHeader, SectionTitle } from "@/components/ui";
+import { Card, EmptyState, PageHeader, Select, SectionTitle } from "@/components/ui";
 import { InterestBadge } from "@/components/InterestBadge";
 import { StatusBadge, TopicBadge } from "@/components/badges";
 import { formatDisplayDate, todayISO } from "@/lib/utils";
@@ -12,22 +12,27 @@ import type { InterestLevel, Person, ReturnVisit } from "@/lib/types";
 import type { VisitBadgeKind } from "@/components/badges";
 
 export default function ReturnVisitsPage() {
-  const { returnVisits, people } = useApp();
+  const { returnVisits, people, areas } = useApp();
   const today = todayISO();
+  const [areaFilter, setAreaFilter] = useState("all");
+
+  const personFor = (rv: ReturnVisit): Person | undefined =>
+    rv.person || people.find((p) => p.id === rv.person_id);
 
   const sections = useMemo(() => {
-    const planned = returnVisits.filter((rv) => rv.status === "planned");
+    const inArea = (rv: ReturnVisit) =>
+      areaFilter === "all" || personFor(rv)?.area_id === areaFilter;
+    const scoped = returnVisits.filter(inArea);
+    const planned = scoped.filter((rv) => rv.status === "planned");
     const todayList = planned.filter((rv) => rv.scheduled_date === today);
     const upcoming = planned.filter((rv) => rv.scheduled_date > today);
     const overdue = planned.filter((rv) =>
       isBefore(parseISO(rv.scheduled_date), parseISO(today))
     );
-    const completed = returnVisits.filter((rv) => rv.status === "completed");
+    const completed = scoped.filter((rv) => rv.status === "completed");
     return { todayList, upcoming, overdue, completed };
-  }, [returnVisits, today]);
-
-  const personFor = (rv: ReturnVisit): Person | undefined =>
-    rv.person || people.find((p) => p.id === rv.person_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [returnVisits, today, areaFilter, people]);
 
   const nameFor = (rv: ReturnVisit) => personFor(rv)?.name || "Person";
 
@@ -37,6 +42,17 @@ export default function ReturnVisitsPage() {
         title="Return Visits"
         subtitle="Prepare and follow through"
       />
+
+      {areas.length > 0 && (
+        <Select value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)}>
+          <option value="all">All areas</option>
+          {areas.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </Select>
+      )}
 
       <VisitSection
         title="Today"

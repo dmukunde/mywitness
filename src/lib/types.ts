@@ -66,6 +66,9 @@ export interface Person {
   /** Optional pin captured via "Use current location" — for reopening the spot later, never shown as raw numbers. */
   location_lat: number | null;
   location_lng: number | null;
+  area_id: string | null;
+  /** Raw as entered — normalized only at display/link time (see lib/phone.ts). */
+  phone_number: string | null;
   preferred_contact_time: string | null;
   first_met_date: string | null;
   interest_level: InterestLevel | null;
@@ -76,6 +79,32 @@ export interface Person {
   archived_at: string | null;
   created_at: string;
   updated_at: string;
+  area?: Area | null;
+  photos?: PersonPhoto[];
+}
+
+/** A neighbourhood/area a person can be grouped under — not tied to live GPS or maps for the MVP. */
+export interface Area {
+  id: string;
+  user_id: string;
+  name: string;
+  landmark_notes: string | null;
+  map_link: string | null;
+  location_lat: number | null;
+  location_lng: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One waypoint photo in a person's small, ordered "how to find this house" list. */
+export interface PersonPhoto {
+  id: string;
+  user_id: string;
+  person_id: string;
+  photo_path: string;
+  caption: string | null;
+  sort_order: number;
+  created_at: string;
 }
 
 export interface MinistrySession {
@@ -89,6 +118,8 @@ export interface MinistrySession {
   companion: string | null;
   area: string | null;
   personal_reflection: string | null;
+  /** Labeling only — how this row was created, not load-bearing for duration math. */
+  source: "timer" | "manual";
   is_demo: boolean;
   created_at: string;
   updated_at: string;

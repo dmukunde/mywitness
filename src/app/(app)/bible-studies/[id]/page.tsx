@@ -17,6 +17,8 @@ import {
   StatusBadge,
   TopicBadge,
 } from "@/components/badges";
+import { WhatsAppButton } from "@/components/WhatsAppButton";
+import { PersonPhotoGallery } from "@/components/PersonPhotoGallery";
 import {
   isStudyOverdue,
   studyProgressLabel,
@@ -162,6 +164,12 @@ export default function BibleStudyProfilePage() {
           <Row label="Private notes" value={study.private_notes} />
         )}
       </Card>
+
+      {person?.phone_number && (
+        <WhatsAppButton phoneNumber={person.phone_number} personName={person.name} />
+      )}
+
+      {person && <PersonPhotoGallery personId={person.id} readOnly />}
 
       <div className="space-y-2">
         <Link href={`/bible-studies/${study.id}/record`} className="block">

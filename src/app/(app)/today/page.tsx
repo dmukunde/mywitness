@@ -7,6 +7,7 @@ import { Mic, NotebookPen } from "lucide-react";
 import { useApp } from "@/lib/app-context";
 import { Button, Card, EmptyState, SectionTitle } from "@/components/ui";
 import { MinistryTimeEditor } from "@/components/MinistryTimeEditor";
+import { MinistryTimer } from "@/components/MinistryTimer";
 import { InterestBadge } from "@/components/InterestBadge";
 import {
   StatusBadge,
@@ -16,7 +17,6 @@ import {
 import {
   formatDisplayDate,
   formatFullDate,
-  formatDuration,
   greetingForNow,
   todayISO,
   minutesBetween,
@@ -163,38 +163,13 @@ function TodayInner() {
         </SuccessBanner>
       )}
 
-      <Card>
-        <p className="text-sm font-medium text-stone-500">Today&apos;s Ministry</p>
-        {!hasMinistryTime ? (
-          <>
-            <p className="mt-3 text-sm text-stone-500">Time spent today</p>
-            <p className="mt-1 font-display text-2xl font-semibold text-stone-800">
-              {formatDuration(0)}
-            </p>
-            <Button
-              variant="secondary"
-              className="mt-4 w-full"
-              onClick={() => setEditOpen(true)}
-            >
-              Add ministry time
-            </Button>
-          </>
-        ) : (
-          <>
-            <p className="mt-2 font-display text-2xl font-semibold text-emerald-800">
-              {formatDuration(todaysMinistryMinutes)}
-            </p>
-            <p className="mt-1 text-sm text-stone-500">{conversationLabel}</p>
-            <Button
-              variant="secondary"
-              className="mt-4 w-full"
-              onClick={() => setEditOpen(true)}
-            >
-              Edit time
-            </Button>
-          </>
-        )}
-      </Card>
+      <MinistryTimer
+        onStartManual={() => setEditOpen(true)}
+        todaysMinutes={todaysMinistryMinutes}
+      />
+      {hasMinistryTime && (
+        <p className="text-sm text-stone-500">{conversationLabel}</p>
+      )}
 
       <div className="space-y-3">
         <Button

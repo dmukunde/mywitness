@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
@@ -19,6 +20,7 @@ import {
 } from "@/lib/demo-store";
 import type { DemoData } from "@/lib/demo-data";
 import type {
+  Area,
   BibleStudy,
   BibleStudyFormData,
   BibleStudySession,
@@ -27,6 +29,7 @@ import type {
   ConversationFormData,
   MinistrySession,
   Person,
+  PersonPhoto,
   Profile,
   Reminder,
   ReturnVisit,
@@ -61,6 +64,10 @@ interface AppContextValue {
   bibleStudies: BibleStudy[];
   studySessions: BibleStudySession[];
   ministryEvents: ScheduledMinistryEvent[];
+  areas: Area[];
+  personPhotos: PersonPhoto[];
+  /** The one open (end_time null) ministry session for this user, if any. */
+  activeMinistrySession: MinistrySession | null;
   refresh: () => Promise<void>;
   enableDemoMode: () => void;
   disableDemoMode: () => void;
@@ -78,6 +85,31 @@ interface AppContextValue {
   updateSession: (
     id: string,
     patch: Partial<MinistrySession>
+  ) => Promise<void>;
+  /** Starts a live timer session; throws if one is already running. */
+  startMinistryTimer: () => Promise<MinistrySession>;
+  /** Ends the active timer, applying an optionally edited final duration. */
+  endMinistryTimer: (input: {
+    durationMinutesOverride?: number;
+    notes?: string;
+  }) => Promise<void>;
+  /** Deletes the active timer session entirely — for an accidental start. */
+  discardMinistryTimer: () => Promise<void>;
+  findOrCreateArea: (name: string) => Promise<string | null>;
+  saveArea: (id: string, patch: Partial<Area>) => Promise<Area>;
+  addPersonPhoto: (
+    personId: string,
+    photoPath: string,
+    caption?: string | null
+  ) => Promise<PersonPhoto>;
+  updatePersonPhotoCaption: (
+    photoId: string,
+    caption: string | null
+  ) => Promise<void>;
+  deletePersonPhoto: (photoId: string) => Promise<void>;
+  reorderPersonPhotos: (
+    personId: string,
+    orderedIds: string[]
   ) => Promise<void>;
   saveConversation: (
     form: ConversationFormData
@@ -144,12 +176,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [ministryEvents, setMinistryEvents] = useState<ScheduledMinistryEvent[]>(
     []
   );
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [personPhotos, setPersonPhotos] = useState<PersonPhoto[]>([]);
   const [scripturesMap, setScripturesMap] = useState<
     Record<string, { id: string; scripture_reference: string }[]>
   >({});
 
   const applyDemo = useCallback((data: DemoData) => {
-    setPeople(data.people.filter((p) => !p.archived_at));
+    const areaById = new Map((data.areas || []).map((a) => [a.id, a]));
+    setPeople(
+      data.people
+        .filter((p) => !p.archived_at)
+        .map((p) => ({
+          ...p,
+          area: p.area_id ? areaById.get(p.area_id) ?? null : null,
+          photos: (data.personPhotos || [])
+            .filter((ph) => ph.person_id === p.id)
+            .sort((a, b) => a.sort_order - b.sort_order),
+        }))
+    );
+    setAreas(data.areas || []);
+    setPersonPhotos(data.personPhotos || []);
     const convs = data.conversations.map((c) => ({
       ...c,
       scriptures: data.scriptures
@@ -217,6 +264,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         studiesRes,
         studySessionsRes,
         eventsRes,
+        areasRes,
+        photosRes,
       ] = await Promise.all([
         supabase.from("profiles").select("*").eq("id", uid).maybeSingle(),
         supabase
@@ -267,6 +316,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           .select("*, person:people(*)")
           .eq("user_id", uid)
           .order("scheduled_date", { ascending: true }),
+        supabase
+          .from("areas")
+          .select("*")
+          .eq("user_id", uid)
+          .order("name", { ascending: true }),
+        supabase
+          .from("person_photos")
+          .select("*")
+          .eq("user_id", uid)
+          .order("sort_order", { ascending: true }),
       ]);
 
       const firstError =
@@ -308,6 +367,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
       }
 
+      const areaPhotoTablesMissing =
+        areasRes.error?.message?.includes("does not exist") ||
+        photosRes.error?.message?.includes("does not exist") ||
+        areasRes.error?.code === "42P01" ||
+        photosRes.error?.code === "42P01";
+
+      if ((areasRes.error || photosRes.error) && !areaPhotoTablesMissing) {
+        console.error("Areas/Photos load error:", {
+          areasRes: areasRes.error,
+          photosRes: photosRes.error,
+        });
+      }
+
       const scriptureByConv =
         scripturesRes.data?.reduce<
           Record<string, { id: string; scripture_reference: string }[]>
@@ -320,7 +392,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
           return acc;
         }, {}) ?? {};
 
-      setPeople((peopleRes.data as Person[]) || []);
+      const areasList = areaPhotoTablesMissing
+        ? []
+        : (areasRes.data as Area[]) || [];
+      const photosList = areaPhotoTablesMissing
+        ? []
+        : (photosRes.data as PersonPhoto[]) || [];
+      const areaById = new Map(areasList.map((a) => [a.id, a]));
+      setPeople(
+        ((peopleRes.data as Person[]) || []).map((p) => ({
+          ...p,
+          area: p.area_id ? areaById.get(p.area_id) ?? null : null,
+          photos: photosList.filter((ph) => ph.person_id === p.id),
+        }))
+      );
+      setAreas(areasList);
+      setPersonPhotos(photosList);
       const profile = profileRes.data as Profile | null;
       const nameFromProfile = sanitizeDisplayName(
         profile?.display_name,
@@ -458,6 +545,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setBibleStudies([]);
           setStudySessions([]);
           setMinistryEvents([]);
+          setAreas([]);
+          setPersonPhotos([]);
           setSettings(null);
           setDisplayName("");
           if (typeof window !== "undefined") {
@@ -505,6 +594,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setBibleStudies([]);
     setStudySessions([]);
     setMinistryEvents([]);
+    setAreas([]);
+    setPersonPhotos([]);
   }, []);
 
   const resetDemo = useCallback(() => {
@@ -624,6 +715,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           companion: null,
           area: null,
           personal_reflection: notes,
+          source: "manual",
           is_demo: true,
           created_at: existing[0]?.created_at || now,
           updated_at: now,
@@ -706,10 +798,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (start) {
           out.session_date = format(parseISO(start), "yyyy-MM-dd");
         }
-        if (start && end) {
-          out.duration_minutes = minutesBetween(start, end);
-        } else if (nextPatch.end_time === null) {
-          out.duration_minutes = null;
+        // An explicit duration (e.g. a timer's user-edited final duration,
+        // which may be less than raw wall-clock time because of a pause)
+        // always wins over the auto-computed one.
+        if (nextPatch.duration_minutes === undefined) {
+          if (start && end) {
+            out.duration_minutes = minutesBetween(start, end);
+          } else if (nextPatch.end_time === null) {
+            out.duration_minutes = null;
+          }
         }
         return out;
       };
@@ -743,6 +840,173 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [applyDemo, demoMode, refresh, sessions]
   );
 
+  const activeMinistrySession = useMemo(
+    () => sessions.find((s) => s.end_time == null) || null,
+    [sessions]
+  );
+
+  const startMinistryTimer = useCallback(async () => {
+    if (activeMinistrySession) {
+      throw new Error("A ministry timer is already running.");
+    }
+    const now = new Date().toISOString();
+    if (demoMode) {
+      const data = loadDemoData();
+      const row: MinistrySession = {
+        id: crypto.randomUUID(),
+        user_id: "demo-user",
+        start_time: now,
+        end_time: null,
+        duration_minutes: null,
+        session_date: todayISO(),
+        ministry_type: null,
+        companion: null,
+        area: null,
+        personal_reflection: null,
+        source: "timer",
+        is_demo: true,
+        created_at: now,
+        updated_at: now,
+      };
+      data.sessions = [row, ...data.sessions];
+      saveDemoData(data);
+      applyDemo(data);
+      return row;
+    }
+    if (!user) throw new Error("Please sign in to start a timer.");
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("ministry_sessions")
+      .insert({
+        user_id: user.id,
+        start_time: now,
+        end_time: null,
+        duration_minutes: null,
+        session_date: todayISO(),
+        source: "timer",
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    await refresh();
+    return data as MinistrySession;
+  }, [activeMinistrySession, applyDemo, demoMode, refresh, user]);
+
+  const endMinistryTimer = useCallback(
+    async (input: { durationMinutesOverride?: number; notes?: string }) => {
+      if (!activeMinistrySession) {
+        throw new Error("No ministry timer is running.");
+      }
+      const now = new Date().toISOString();
+      const rawMinutes = minutesBetween(activeMinistrySession.start_time, now);
+      const timerDuration = Math.max(
+        0,
+        input.durationMinutesOverride ?? rawMinutes
+      );
+      const date = activeMinistrySession.session_date;
+
+      // Merge with any other session already recorded for the same day
+      // (e.g. a manual entry) instead of leaving two rows — that's how a
+      // timer and a manual record would otherwise double-count.
+      const others = sessions
+        .filter((s) => s.session_date === date && s.id !== activeMinistrySession.id)
+        .sort(
+          (a, b) =>
+            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+        );
+
+      if (demoMode) {
+        const data = loadDemoData();
+        if (others.length > 0) {
+          const keep = others[0];
+          const removeIds = new Set([
+            ...others.slice(1).map((s) => s.id),
+            activeMinistrySession.id,
+          ]);
+          data.sessions = data.sessions
+            .filter((s) => !removeIds.has(s.id))
+            .map((s) =>
+              s.id === keep.id
+                ? {
+                    ...s,
+                    duration_minutes: (s.duration_minutes || 0) + timerDuration,
+                    personal_reflection: input.notes || s.personal_reflection,
+                    updated_at: now,
+                  }
+                : s
+            );
+        } else {
+          data.sessions = data.sessions.map((s) =>
+            s.id === activeMinistrySession.id
+              ? {
+                  ...s,
+                  end_time: now,
+                  duration_minutes: timerDuration,
+                  personal_reflection: input.notes || s.personal_reflection,
+                  updated_at: now,
+                }
+              : s
+          );
+        }
+        saveDemoData(data);
+        applyDemo(data);
+        return;
+      }
+
+      const supabase = createClient();
+      if (others.length > 0) {
+        const keep = others[0];
+        const removeIds = [
+          ...others.slice(1).map((s) => s.id),
+          activeMinistrySession.id,
+        ];
+        const { error: updateError } = await supabase
+          .from("ministry_sessions")
+          .update({
+            duration_minutes: (keep.duration_minutes || 0) + timerDuration,
+            personal_reflection: input.notes || keep.personal_reflection,
+            updated_at: now,
+          })
+          .eq("id", keep.id);
+        if (updateError) throw updateError;
+        await supabase.from("ministry_sessions").delete().in("id", removeIds);
+      } else {
+        const { error: updateError } = await supabase
+          .from("ministry_sessions")
+          .update({
+            end_time: now,
+            duration_minutes: timerDuration,
+            personal_reflection:
+              input.notes || activeMinistrySession.personal_reflection,
+            updated_at: now,
+          })
+          .eq("id", activeMinistrySession.id);
+        if (updateError) throw updateError;
+      }
+      await refresh();
+    },
+    [activeMinistrySession, applyDemo, demoMode, refresh, sessions]
+  );
+
+  const discardMinistryTimer = useCallback(async () => {
+    if (!activeMinistrySession) return;
+    const id = activeMinistrySession.id;
+    if (demoMode) {
+      const data = loadDemoData();
+      data.sessions = data.sessions.filter((s) => s.id !== id);
+      saveDemoData(data);
+      applyDemo(data);
+      return;
+    }
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("ministry_sessions")
+      .delete()
+      .eq("id", id);
+    if (error) throw error;
+    await refresh();
+  }, [activeMinistrySession, applyDemo, demoMode, refresh]);
+
   const savePerson = useCallback(
     async (person: Partial<Person> & { name: string }) => {
       const now = new Date().toISOString();
@@ -771,6 +1035,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           general_location: person.general_location ?? null,
           location_lat: person.location_lat ?? null,
           location_lng: person.location_lng ?? null,
+          area_id: person.area_id ?? null,
+          phone_number: person.phone_number ?? null,
           preferred_contact_time: person.preferred_contact_time ?? null,
           first_met_date: person.first_met_date ?? todayISO(),
           interest_level: person.interest_level ?? "unknown",
@@ -826,6 +1092,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           general_location: person.general_location ?? null,
           location_lat: person.location_lat ?? null,
           location_lng: person.location_lng ?? null,
+          area_id: person.area_id ?? null,
+          phone_number: person.phone_number ?? null,
           preferred_contact_time: person.preferred_contact_time ?? null,
           first_met_date: person.first_met_date ?? todayISO(),
           interest_level: person.interest_level || "unknown",
@@ -860,6 +1128,195 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .update({ archived_at: now })
         .eq("id", id);
       if (error) throw error;
+      await refresh();
+    },
+    [applyDemo, demoMode, refresh]
+  );
+
+  const findOrCreateArea = useCallback(
+    async (rawName: string): Promise<string | null> => {
+      const name = rawName.trim();
+      if (!name) return null;
+      // Case/whitespace-insensitive match so "kiwatule" and "Kiwatule " resolve
+      // to the same area rather than creating a near-duplicate.
+      const existing = areas.find(
+        (a) => a.name.trim().toLowerCase() === name.toLowerCase()
+      );
+      if (existing) return existing.id;
+
+      const now = new Date().toISOString();
+      if (demoMode) {
+        const data = loadDemoData();
+        const created: Area = {
+          id: crypto.randomUUID(),
+          user_id: "demo-user",
+          name,
+          landmark_notes: null,
+          map_link: null,
+          location_lat: null,
+          location_lng: null,
+          created_at: now,
+          updated_at: now,
+        };
+        data.areas = [...(data.areas || []), created];
+        saveDemoData(data);
+        applyDemo(data);
+        return created.id;
+      }
+
+      if (!user) throw new Error("Please sign in to create an area.");
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("areas")
+        .insert({ user_id: user.id, name })
+        .select()
+        .single();
+      if (error) throw error;
+      await refresh();
+      return (data as Area).id;
+    },
+    [applyDemo, areas, demoMode, refresh, user]
+  );
+
+  const saveArea = useCallback(
+    async (id: string, patch: Partial<Area>) => {
+      const now = new Date().toISOString();
+      if (demoMode) {
+        const data = loadDemoData();
+        data.areas = (data.areas || []).map((a) =>
+          a.id === id ? { ...a, ...patch, updated_at: now } : a
+        );
+        saveDemoData(data);
+        applyDemo(data);
+        return data.areas.find((a) => a.id === id)!;
+      }
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("areas")
+        .update(patch)
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      await refresh();
+      return data as Area;
+    },
+    [applyDemo, demoMode, refresh]
+  );
+
+  const addPersonPhoto = useCallback(
+    async (personId: string, photoPath: string, caption?: string | null) => {
+      const now = new Date().toISOString();
+      const nextOrder =
+        Math.max(
+          -1,
+          ...personPhotos
+            .filter((p) => p.person_id === personId)
+            .map((p) => p.sort_order)
+        ) + 1;
+      if (demoMode) {
+        const data = loadDemoData();
+        const created: PersonPhoto = {
+          id: crypto.randomUUID(),
+          user_id: "demo-user",
+          person_id: personId,
+          photo_path: photoPath,
+          caption: caption || null,
+          sort_order: nextOrder,
+          created_at: now,
+        };
+        data.personPhotos = [...(data.personPhotos || []), created];
+        saveDemoData(data);
+        applyDemo(data);
+        return created;
+      }
+      if (!user) throw new Error("Please sign in to add a photo.");
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("person_photos")
+        .insert({
+          user_id: user.id,
+          person_id: personId,
+          photo_path: photoPath,
+          caption: caption || null,
+          sort_order: nextOrder,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      await refresh();
+      return data as PersonPhoto;
+    },
+    [applyDemo, demoMode, personPhotos, refresh, user]
+  );
+
+  const updatePersonPhotoCaption = useCallback(
+    async (photoId: string, caption: string | null) => {
+      if (demoMode) {
+        const data = loadDemoData();
+        data.personPhotos = (data.personPhotos || []).map((p) =>
+          p.id === photoId ? { ...p, caption } : p
+        );
+        saveDemoData(data);
+        applyDemo(data);
+        return;
+      }
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("person_photos")
+        .update({ caption })
+        .eq("id", photoId);
+      if (error) throw error;
+      await refresh();
+    },
+    [applyDemo, demoMode, refresh]
+  );
+
+  const deletePersonPhoto = useCallback(
+    async (photoId: string) => {
+      const photo = personPhotos.find((p) => p.id === photoId);
+      if (demoMode) {
+        const data = loadDemoData();
+        data.personPhotos = (data.personPhotos || []).filter(
+          (p) => p.id !== photoId
+        );
+        saveDemoData(data);
+        applyDemo(data);
+        return;
+      }
+      const supabase = createClient();
+      if (photo && !photo.photo_path.startsWith("data:")) {
+        await supabase.storage.from("person-photos").remove([photo.photo_path]);
+      }
+      const { error } = await supabase
+        .from("person_photos")
+        .delete()
+        .eq("id", photoId);
+      if (error) throw error;
+      await refresh();
+    },
+    [applyDemo, demoMode, personPhotos, refresh]
+  );
+
+  const reorderPersonPhotos = useCallback(
+    async (personId: string, orderedIds: string[]) => {
+      if (demoMode) {
+        const data = loadDemoData();
+        data.personPhotos = (data.personPhotos || []).map((p) => {
+          if (p.person_id !== personId) return p;
+          const idx = orderedIds.indexOf(p.id);
+          return idx === -1 ? p : { ...p, sort_order: idx };
+        });
+        saveDemoData(data);
+        applyDemo(data);
+        return;
+      }
+      const supabase = createClient();
+      await Promise.all(
+        orderedIds.map((id, idx) =>
+          supabase.from("person_photos").update({ sort_order: idx }).eq("id", id)
+        )
+      );
       await refresh();
     },
     [applyDemo, demoMode, refresh]
@@ -1343,6 +1800,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     bibleStudies,
     studySessions,
     ministryEvents,
+    areas,
+    personPhotos,
+    activeMinistrySession,
     refresh,
     enableDemoMode,
     disableDemoMode,
@@ -1352,6 +1812,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     updatePassword,
     saveDailyMinistryTime,
     updateSession,
+    startMinistryTimer,
+    endMinistryTimer,
+    discardMinistryTimer,
+    findOrCreateArea,
+    saveArea,
+    addPersonPhoto,
+    updatePersonPhotoCaption,
+    deletePersonPhoto,
+    reorderPersonPhotos,
     saveConversation,
     savePerson,
     archivePerson,
