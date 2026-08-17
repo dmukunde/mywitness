@@ -42,18 +42,15 @@ function clearPauseState(sessionId: string) {
 
 export function MinistryTimer({
   onStartManual,
-  todaysMinutes,
   monthMinutes,
-  yearMinutes,
+  allTimeMinutes,
 }: {
   /** Opens the existing manual hours/minutes editor. */
   onStartManual: () => void;
-  /** Minutes already saved today (sum of today's saved sessions — never the live timer). */
-  todaysMinutes: number;
   /** Minutes already saved this month (sum of saved sessions — never the live timer). */
   monthMinutes: number;
-  /** Minutes already saved in the current year/service-year window. */
-  yearMinutes: number;
+  /** Every saved session ever, regardless of month or year — never the live timer. */
+  allTimeMinutes: number;
 }) {
   const { activeMinistrySession, startMinistryTimer, endMinistryTimer, discardMinistryTimer } =
     useApp();
@@ -104,10 +101,11 @@ export function MinistryTimer({
             <p className="mt-2 font-display text-2xl font-semibold text-emerald-800">
               {formatDuration(monthMinutes)} completed
             </p>
-            <div className="mt-1 flex items-center justify-between text-sm text-stone-500">
-              <span>{todaysMinutes > 0 ? `Today: ${formatDuration(todaysMinutes)}` : ""}</span>
-              {yearMinutes > 0 && <span>Year total: {formatDuration(yearMinutes)}</span>}
-            </div>
+            {allTimeMinutes > 0 && (
+              <p className="mt-1 text-sm text-stone-500">
+                All-time ministry: {formatDuration(allTimeMinutes)}
+              </p>
+            )}
           </>
         ) : (
           <p className="mt-3 text-sm text-stone-500">Track time as you go, or add it later.</p>
