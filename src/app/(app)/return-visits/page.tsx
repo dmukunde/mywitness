@@ -1,18 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useApp } from "@/lib/app-context";
 import { Card, EmptyState, PageHeader, Select, SectionTitle } from "@/components/ui";
 import { InterestBadge } from "@/components/InterestBadge";
-import { StatusBadge, TopicBadge } from "@/components/badges";
+import { StatusBadge, SuccessBanner, TopicBadge } from "@/components/badges";
 import { formatDisplayDate, todayISO } from "@/lib/utils";
 import { isBefore, parseISO } from "date-fns";
 import type { InterestLevel, Person, ReturnVisit } from "@/lib/types";
 import type { VisitBadgeKind } from "@/components/badges";
 
-export default function ReturnVisitsPage() {
+function ReturnVisitsInner() {
   const { returnVisits, people, areas } = useApp();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [dismissedBanner, setDismissedBanner] = useState(false);
+  const deletedBanner =
+    !dismissedBanner && searchParams.get("deleted") === "1"
+      ? "Return visit deleted."
+      : null;
   const today = todayISO();
   const [areaFilter, setAreaFilter] = useState("all");
 
@@ -42,6 +50,17 @@ export default function ReturnVisitsPage() {
         title="Return Visits"
         subtitle="Prepare and follow through"
       />
+
+      {deletedBanner && (
+        <SuccessBanner
+          onDismiss={() => {
+            setDismissedBanner(true);
+            router.replace("/return-visits", { scroll: false });
+          }}
+        >
+          {deletedBanner}
+        </SuccessBanner>
+      )}
 
       {areas.length > 0 && (
         <Select value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)}>
@@ -83,6 +102,14 @@ export default function ReturnVisitsPage() {
         statusKind="done"
       />
     </div>
+  );
+}
+
+export default function ReturnVisitsPage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-stone-500">Loading…</p>}>
+      <ReturnVisitsInner />
+    </Suspense>
   );
 }
 

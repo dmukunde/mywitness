@@ -32,10 +32,13 @@ import { isBefore, parseISO } from "date-fns";
 export default function ReturnVisitPrepPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { returnVisits, people, conversations, updateReturnVisit } = useApp();
+  const { returnVisits, people, conversations, updateReturnVisit, deleteReturnVisit } =
+    useApp();
   const visit = returnVisits.find((rv) => rv.id === params.id);
   const [rescheduling, setRescheduling] = useState(false);
-  const [cancelling, setCancelling] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [notes, setNotes] = useState("");
@@ -82,9 +85,19 @@ export default function ReturnVisitPrepPage() {
     router.replace("/return-visits");
   };
 
-  const cancelVisit = async () => {
-    await updateReturnVisit(visit.id, { status: "cancelled" });
-    router.replace("/return-visits");
+  const confirmDelete = async () => {
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await deleteReturnVisit(visit.id);
+      router.replace("/return-visits?deleted=1");
+    } catch (err) {
+      setDeleteError(
+        err instanceof Error ? err.message : "Could not delete this return visit."
+      );
+      setDeleteBusy(false);
+      setDeleting(false);
+    }
   };
 
   const reschedule = async () => {
@@ -208,13 +221,6 @@ export default function ReturnVisitPrepPage() {
             >
               Reschedule
             </Button>
-            <Button
-              variant="ghost"
-              className="w-full text-rose-700"
-              onClick={() => setCancelling(true)}
-            >
-              Cancel visit
-            </Button>
           </>
         )}
         {person && (
@@ -223,6 +229,18 @@ export default function ReturnVisitPrepPage() {
               Open person profile
             </Button>
           </Link>
+        )}
+        <Button
+          variant="ghost"
+          className="w-full text-rose-700"
+          onClick={() => setDeleting(true)}
+        >
+          Delete Return Visit
+        </Button>
+        {deleteError && (
+          <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {deleteError}
+          </p>
         )}
       </div>
 
@@ -262,13 +280,13 @@ export default function ReturnVisitPrepPage() {
       )}
 
       <ConfirmDialog
-        open={cancelling}
-        title="Cancel this return visit?"
-        message="The visit will be marked cancelled. You can schedule a new one anytime."
-        confirmLabel="Cancel visit"
+        open={deleting}
+        title={`Delete this return visit${person?.name ? ` with ${person.name}` : ""}?`}
+        message={`This removes it from your active list. It won't delete ${person?.name || "the person"}'s profile or any conversation history.`}
+        confirmLabel={deleteBusy ? "Deleting…" : "Delete Return Visit"}
         danger
-        onConfirm={cancelVisit}
-        onCancel={() => setCancelling(false)}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setDeleting(false)}
       />
     </div>
   );

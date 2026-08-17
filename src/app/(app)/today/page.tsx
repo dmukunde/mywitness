@@ -8,6 +8,7 @@ import { useApp } from "@/lib/app-context";
 import { Button, Card, EmptyState, SectionTitle } from "@/components/ui";
 import { MinistryTimeEditor } from "@/components/MinistryTimeEditor";
 import { MinistryTimer } from "@/components/MinistryTimer";
+import { MinistryDaySessions } from "@/components/MinistryDaySessions";
 import { InterestBadge } from "@/components/InterestBadge";
 import {
   StatusBadge,
@@ -19,8 +20,9 @@ import {
   formatFullDate,
   greetingForNow,
   todayISO,
-  minutesBetween,
+  monthRange,
 } from "@/lib/utils";
+import { sumMinutesForRange, sessionsOnDate } from "@/lib/ministry-time";
 
 function TodayInner() {
   const router = useRouter();
@@ -91,30 +93,19 @@ function TodayInner() {
     [conversations, today]
   );
 
-  const primaryTodaySession = useMemo(() => {
-    return (
-      sessions
-        .filter((s) => s.session_date === today)
-        .sort(
-          (a, b) =>
-            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-        )[0] || null
-    );
-  }, [sessions, today]);
-
-  const todaysMinistryMinutes = useMemo(() => {
-    if (!primaryTodaySession) return 0;
-    if (primaryTodaySession.duration_minutes != null) {
-      return primaryTodaySession.duration_minutes;
-    }
-    if (primaryTodaySession.end_time) {
-      return minutesBetween(
-        primaryTodaySession.start_time,
-        primaryTodaySession.end_time
-      );
-    }
-    return 0;
-  }, [primaryTodaySession]);
+  const month = useMemo(() => monthRange(), []);
+  const todaysSessions = useMemo(
+    () => sessionsOnDate(sessions, today),
+    [sessions, today]
+  );
+  const todaysMinistryMinutes = useMemo(
+    () => sumMinutesForRange(sessions, today, today),
+    [sessions, today]
+  );
+  const monthMinistryMinutes = useMemo(
+    () => sumMinutesForRange(sessions, month.start, month.end),
+    [sessions, month]
+  );
 
   const hasMinistryTime = todaysMinistryMinutes > 0;
   const conversationLabel =
@@ -166,7 +157,9 @@ function TodayInner() {
       <MinistryTimer
         onStartManual={() => setEditOpen(true)}
         todaysMinutes={todaysMinistryMinutes}
+        monthMinutes={monthMinistryMinutes}
       />
+      <MinistryDaySessions sessions={todaysSessions} />
       {hasMinistryTime && (
         <p className="text-sm text-stone-500">{conversationLabel}</p>
       )}
@@ -421,8 +414,6 @@ function TodayInner() {
       <MinistryTimeEditor
         open={editOpen}
         initialDate={today}
-        initialMinutes={todaysMinistryMinutes}
-        initialNotes={primaryTodaySession?.personal_reflection || ""}
         onClose={() => setEditOpen(false)}
         onSave={async (input) => {
           await saveDailyMinistryTime(input);

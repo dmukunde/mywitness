@@ -7,6 +7,7 @@ import { useApp } from "@/lib/app-context";
 import {
   Button,
   Card,
+  ConfirmDialog,
   EmptyState,
   Input,
   PageHeader,
@@ -35,6 +36,7 @@ export default function BibleStudyProfilePage() {
     people,
     updateBibleStudyStatus,
     saveBibleStudy,
+    archiveBibleStudy,
   } = useApp();
 
   const study = bibleStudies.find((s) => s.id === params.id);
@@ -53,6 +55,9 @@ export default function BibleStudyProfilePage() {
   const [scheduling, setScheduling] = useState(false);
   const [nextDate, setNextDate] = useState("");
   const [nextTime, setNextTime] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   if (!study) {
     return (
@@ -103,6 +108,21 @@ export default function BibleStudyProfilePage() {
       study.id
     );
     setScheduling(false);
+  };
+
+  const confirmDelete = async () => {
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await archiveBibleStudy(study.id);
+      router.replace("/bible-studies?deleted=1");
+    } catch (err) {
+      setDeleteError(
+        err instanceof Error ? err.message : "Could not delete this Bible study."
+      );
+      setDeleteBusy(false);
+      setDeleting(false);
+    }
   };
 
   return (
@@ -227,6 +247,18 @@ export default function BibleStudyProfilePage() {
             </Button>
           </Link>
         )}
+        <Button
+          variant="ghost"
+          className="w-full text-rose-700"
+          onClick={() => setDeleting(true)}
+        >
+          Delete Bible Study
+        </Button>
+        {deleteError && (
+          <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {deleteError}
+          </p>
+        )}
       </div>
 
       {scheduling && (
@@ -253,6 +285,20 @@ export default function BibleStudyProfilePage() {
           </Button>
         </Card>
       )}
+
+      <ConfirmDialog
+        open={deleting}
+        title={`Delete this Bible study${person?.name ? ` with ${person.name}` : ""}?`}
+        message={
+          sessions.length > 0
+            ? `This hides it from your active list. It won't delete ${person?.name || "the person"}'s profile, and all ${sessions.length} study session record${sessions.length === 1 ? "" : "s"} and notes stay in your history — you just won't see it in active studies anymore.`
+            : `This hides it from your active list. It won't delete ${person?.name || "the person"}'s profile or any of their conversation history.`
+        }
+        confirmLabel={deleteBusy ? "Deleting…" : "Delete Bible Study"}
+        danger
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setDeleting(false)}
+      />
 
       <section>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-amber-900/70">

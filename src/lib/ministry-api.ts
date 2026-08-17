@@ -207,6 +207,7 @@ export function buildStudyFromForm(
     preparation_notes: emptyToNull(form.preparation_notes),
     private_notes: emptyToNull(form.private_notes),
     source_return_visit_id: emptyToNull(form.source_return_visit_id),
+    archived_at: existing?.archived_at ?? null,
     is_demo: userId === "demo-user",
     created_at: existing?.created_at || now,
     updated_at: now,

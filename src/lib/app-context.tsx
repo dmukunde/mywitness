@@ -86,6 +86,8 @@ interface AppContextValue {
     id: string,
     patch: Partial<MinistrySession>
   ) => Promise<void>;
+  /** Deletes a single saved ministry-time entry (timer or manual). */
+  deleteMinistrySession: (id: string) => Promise<void>;
   /** Starts a live timer session; throws if one is already running. */
   startMinistryTimer: () => Promise<MinistrySession>;
   /** Ends the active timer, applying an optionally edited final duration. */
@@ -136,6 +138,10 @@ interface AppContextValue {
     id: string,
     status: BibleStudy["status"]
   ) => Promise<void>;
+  /** Soft-delete: hides the study and cancels its future scheduled event, but keeps all session history. */
+  archiveBibleStudy: (id: string) => Promise<void>;
+  /** Soft-delete: marks the return visit cancelled and cancels its scheduled event. */
+  deleteReturnVisit: (id: string) => Promise<void>;
   findDuplicateEvent: (candidate: {
     person_id: string;
     event_type: ScheduledMinistryEvent["event_type"];
@@ -222,10 +228,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSessions(data.sessions);
     setReminders(data.reminders.filter((r) => !r.dismissed_at));
     setBibleStudies(
-      (data.bibleStudies || []).map((s) => ({
-        ...s,
-        person: data.people.find((p) => p.id === s.person_id) ?? null,
-      }))
+      (data.bibleStudies || [])
+        .filter((s) => !s.archived_at)
+        .map((s) => ({
+          ...s,
+          person: data.people.find((p) => p.id === s.person_id) ?? null,
+        }))
     );
     setStudySessions(data.studySessions || []);
     setMinistryEvents(
@@ -305,6 +313,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           .from("bible_studies")
           .select("*, person:people(*)")
           .eq("user_id", uid)
+          .is("archived_at", null)
           .order("updated_at", { ascending: false }),
         supabase
           .from("bible_study_sessions")
@@ -671,6 +680,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [demoMode, user]
   );
 
+  /**
+   * Adds a new manual ministry-time entry (its own row) for a date. Does NOT
+   * merge into an existing same-day row — each Start/End timer and each
+   * manual save is its own session; Today/Activity/Calendar sum same-day
+   * rows for a total rather than relying on one blended row per day. This
+   * also removes the previous overwrite bug, where adding manual time on a
+   * day that already had a timer session silently replaced its duration
+   * instead of adding to it.
+   */
   const saveDailyMinistryTime = useCallback(
     async (input: {
       date?: string;
@@ -694,18 +712,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const endIso = addMinutes(parseISO(startIso), duration).toISOString();
       const notes = input.notes?.trim() || null;
 
-      const existing = sessions
-        .filter((s) => s.session_date === date)
-        .sort(
-          (a, b) =>
-            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-        );
-
       if (demoMode) {
         const data = loadDemoData();
-        const keepId = existing[0]?.id || crypto.randomUUID();
         const row: MinistrySession = {
-          id: keepId,
+          id: crypto.randomUUID(),
           user_id: "demo-user",
           start_time: startIso,
           end_time: endIso,
@@ -717,51 +727,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           personal_reflection: notes,
           source: "manual",
           is_demo: true,
-          created_at: existing[0]?.created_at || now,
+          created_at: now,
           updated_at: now,
         };
-        data.sessions = [
-          row,
-          ...data.sessions.filter((s) => s.session_date !== date),
-        ];
+        data.sessions = [row, ...data.sessions];
         saveDemoData(data);
         applyDemo(data);
         return row;
       }
 
       const supabase = createClient();
-      const keep = existing[0];
-      const extras = existing.slice(1);
-
-      if (extras.length > 0) {
-        await supabase
-          .from("ministry_sessions")
-          .delete()
-          .in(
-            "id",
-            extras.map((s) => s.id)
-          );
-      }
-
-      if (keep) {
-        const { data, error } = await supabase
-          .from("ministry_sessions")
-          .update({
-            start_time: startIso,
-            end_time: endIso,
-            duration_minutes: duration,
-            session_date: date,
-            personal_reflection: notes,
-            updated_at: now,
-          })
-          .eq("id", keep.id)
-          .select()
-          .single();
-        if (error) throw error;
-        await refresh();
-        return data as MinistrySession;
-      }
-
       const { data, error } = await supabase
         .from("ministry_sessions")
         .insert({
@@ -771,6 +746,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           duration_minutes: duration,
           session_date: date,
           personal_reflection: notes,
+          source: "manual",
         })
         .select()
         .single();
@@ -778,7 +754,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await refresh();
       return data as MinistrySession;
     },
-    [applyDemo, demoMode, refresh, sessions, user]
+    [applyDemo, demoMode, refresh, user]
+  );
+
+  const deleteMinistrySession = useCallback(
+    async (id: string) => {
+      if (demoMode) {
+        const data = loadDemoData();
+        data.sessions = data.sessions.filter((s) => s.id !== id);
+        saveDemoData(data);
+        applyDemo(data);
+        return;
+      }
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("ministry_sessions")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+      await refresh();
+    },
+    [applyDemo, demoMode, refresh]
   );
 
   const updateSession = useCallback(
@@ -892,6 +888,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return data as MinistrySession;
   }, [activeMinistrySession, applyDemo, demoMode, refresh, user]);
 
+  /**
+   * Ends the active timer by updating its own row only — it no longer
+   * searches for and merges into a different same-day session. Each timer
+   * run and each manual entry stays its own row; totals are summed at
+   * display time (see lib/ministry-time.ts), which is what actually
+   * prevents double-counting without risking the previous bug where ending
+   * a timer (or saving manual time) could silently overwrite a different
+   * session's duration.
+   */
   const endMinistryTimer = useCallback(
     async (input: { durationMinutesOverride?: number; notes?: string }) => {
       if (!activeMinistrySession) {
@@ -903,89 +908,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
         0,
         input.durationMinutesOverride ?? rawMinutes
       );
-      const date = activeMinistrySession.session_date;
-
-      // Merge with any other session already recorded for the same day
-      // (e.g. a manual entry) instead of leaving two rows — that's how a
-      // timer and a manual record would otherwise double-count.
-      const others = sessions
-        .filter((s) => s.session_date === date && s.id !== activeMinistrySession.id)
-        .sort(
-          (a, b) =>
-            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-        );
 
       if (demoMode) {
         const data = loadDemoData();
-        if (others.length > 0) {
-          const keep = others[0];
-          const removeIds = new Set([
-            ...others.slice(1).map((s) => s.id),
-            activeMinistrySession.id,
-          ]);
-          data.sessions = data.sessions
-            .filter((s) => !removeIds.has(s.id))
-            .map((s) =>
-              s.id === keep.id
-                ? {
-                    ...s,
-                    duration_minutes: (s.duration_minutes || 0) + timerDuration,
-                    personal_reflection: input.notes || s.personal_reflection,
-                    updated_at: now,
-                  }
-                : s
-            );
-        } else {
-          data.sessions = data.sessions.map((s) =>
-            s.id === activeMinistrySession.id
-              ? {
-                  ...s,
-                  end_time: now,
-                  duration_minutes: timerDuration,
-                  personal_reflection: input.notes || s.personal_reflection,
-                  updated_at: now,
-                }
-              : s
-          );
-        }
+        data.sessions = data.sessions.map((s) =>
+          s.id === activeMinistrySession.id
+            ? {
+                ...s,
+                end_time: now,
+                duration_minutes: timerDuration,
+                personal_reflection: input.notes || s.personal_reflection,
+                updated_at: now,
+              }
+            : s
+        );
         saveDemoData(data);
         applyDemo(data);
         return;
       }
 
       const supabase = createClient();
-      if (others.length > 0) {
-        const keep = others[0];
-        const removeIds = [
-          ...others.slice(1).map((s) => s.id),
-          activeMinistrySession.id,
-        ];
-        const { error: updateError } = await supabase
-          .from("ministry_sessions")
-          .update({
-            duration_minutes: (keep.duration_minutes || 0) + timerDuration,
-            personal_reflection: input.notes || keep.personal_reflection,
-            updated_at: now,
-          })
-          .eq("id", keep.id);
-        if (updateError) throw updateError;
-        await supabase.from("ministry_sessions").delete().in("id", removeIds);
-      } else {
-        const { error: updateError } = await supabase
-          .from("ministry_sessions")
-          .update({
-            end_time: now,
-            duration_minutes: timerDuration,
-            personal_reflection:
-              input.notes || activeMinistrySession.personal_reflection,
-            updated_at: now,
-          })
-          .eq("id", activeMinistrySession.id);
-        if (updateError) throw updateError;
-      }
+      const { error: updateError } = await supabase
+        .from("ministry_sessions")
+        .update({
+          end_time: now,
+          duration_minutes: timerDuration,
+          personal_reflection:
+            input.notes || activeMinistrySession.personal_reflection,
+          updated_at: now,
+        })
+        .eq("id", activeMinistrySession.id);
+      if (updateError) throw updateError;
       await refresh();
     },
-    [activeMinistrySession, applyDemo, demoMode, refresh, sessions]
+    [activeMinistrySession, applyDemo, demoMode, refresh]
   );
 
   const discardMinistryTimer = useCallback(async () => {
@@ -1512,6 +1468,84 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [applyDemo, demoMode, refresh, user]
   );
 
+  const archiveBibleStudy = useCallback(
+    async (id: string) => {
+      const now = new Date().toISOString();
+      if (demoMode) {
+        const data = loadDemoData();
+        const study = data.bibleStudies.find((s) => s.id === id);
+        if (!study) return;
+        data.bibleStudies = data.bibleStudies.map((s) =>
+          s.id === id ? { ...s, archived_at: now, updated_at: now } : s
+        );
+        data.ministryEvents = data.ministryEvents.map((e) =>
+          e.bible_study_id === id && e.status === "planned"
+            ? { ...e, status: "cancelled" as const, updated_at: now }
+            : e
+        );
+        saveDemoData(data);
+        applyDemo(data);
+        return;
+      }
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("bible_studies")
+        .update({ archived_at: now })
+        .eq("id", id);
+      if (error) throw error;
+      try {
+        await supabase
+          .from("scheduled_ministry_events")
+          .update({ status: "cancelled" })
+          .eq("bible_study_id", id)
+          .eq("status", "planned");
+      } catch (e) {
+        console.warn("Calendar event cleanup skipped:", e);
+      }
+      await refresh();
+    },
+    [applyDemo, demoMode, refresh]
+  );
+
+  const deleteReturnVisit = useCallback(
+    async (id: string) => {
+      const now = new Date().toISOString();
+      if (demoMode) {
+        const data = loadDemoData();
+        const visit = data.returnVisits.find((rv) => rv.id === id);
+        if (!visit) return;
+        data.returnVisits = data.returnVisits.map((rv) =>
+          rv.id === id ? { ...rv, status: "cancelled" as const, updated_at: now } : rv
+        );
+        data.ministryEvents = data.ministryEvents.map((e) =>
+          e.return_visit_id === id && e.status === "planned"
+            ? { ...e, status: "cancelled" as const, updated_at: now }
+            : e
+        );
+        saveDemoData(data);
+        applyDemo(data);
+        return;
+      }
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("return_visits")
+        .update({ status: "cancelled" })
+        .eq("id", id);
+      if (error) throw error;
+      try {
+        await supabase
+          .from("scheduled_ministry_events")
+          .update({ status: "cancelled" })
+          .eq("return_visit_id", id)
+          .eq("status", "planned");
+      } catch (e) {
+        console.warn("Calendar event cleanup skipped:", e);
+      }
+      await refresh();
+    },
+    [applyDemo, demoMode, refresh]
+  );
+
   const saveConversation = useCallback(
     async (form: ConversationFormData) => {
       let person: Person;
@@ -1812,6 +1846,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     updatePassword,
     saveDailyMinistryTime,
     updateSession,
+    deleteMinistrySession,
     startMinistryTimer,
     endMinistryTimer,
     discardMinistryTimer,
@@ -1829,6 +1864,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     saveBibleStudy,
     saveStudySession,
     updateBibleStudyStatus,
+    archiveBibleStudy,
+    deleteReturnVisit,
     findDuplicateEvent,
     dismissReminder,
     updateSettings,

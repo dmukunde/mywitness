@@ -220,6 +220,8 @@ export interface BibleStudy {
   preparation_notes: string | null;
   private_notes: string | null;
   source_return_visit_id: string | null;
+  /** Soft-delete — independent of `status`; null unless the user deleted the study. */
+  archived_at: string | null;
   is_demo: boolean;
   created_at: string;
   updated_at: string;

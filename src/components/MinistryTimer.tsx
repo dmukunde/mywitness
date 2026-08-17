@@ -5,7 +5,7 @@ import { AlertTriangle, Pause, Play, Square, X } from "lucide-react";
 import { useApp } from "@/lib/app-context";
 import { Button, Card, Input, Textarea } from "@/components/ui";
 import { formatDuration, formatDurationFromMs } from "@/lib/utils";
-import { parseISO } from "date-fns";
+import { format, parseISO } from "date-fns";
 
 const LONG_SESSION_MS = 6 * 60 * 60 * 1000; // 6 hours
 const pauseKey = (sessionId: string) => `mywitness-timer-pause-${sessionId}`;
@@ -42,11 +42,14 @@ function clearPauseState(sessionId: string) {
 export function MinistryTimer({
   onStartManual,
   todaysMinutes,
+  monthMinutes,
 }: {
   /** Opens the existing manual hours/minutes editor. */
   onStartManual: () => void;
-  /** Minutes already logged today from a completed (non-active) session. */
+  /** Minutes already saved today (sum of today's saved sessions — never the live timer). */
   todaysMinutes: number;
+  /** Minutes already saved this month (sum of saved sessions — never the live timer). */
+  monthMinutes: number;
 }) {
   const { activeMinistrySession, startMinistryTimer, endMinistryTimer, discardMinistryTimer } =
     useApp();
@@ -87,14 +90,22 @@ export function MinistryTimer({
   }, [activeMinistrySession, pauseState.pausedAt]);
 
   if (!activeMinistrySession) {
-    const hasTime = todaysMinutes > 0;
+    const hasTime = monthMinutes > 0;
+    const monthLabel = format(new Date(), "MMMM");
     return (
       <Card>
-        <p className="text-sm font-medium text-stone-500">Today&apos;s Ministry</p>
+        <p className="text-sm font-medium text-stone-500">{monthLabel} ministry time</p>
         {hasTime ? (
-          <p className="mt-2 font-display text-2xl font-semibold text-emerald-800">
-            {formatDuration(todaysMinutes)}
-          </p>
+          <>
+            <p className="mt-2 font-display text-2xl font-semibold text-emerald-800">
+              {formatDuration(monthMinutes)} completed
+            </p>
+            {todaysMinutes > 0 && (
+              <p className="mt-1 text-sm text-stone-500">
+                Today: {formatDuration(todaysMinutes)}
+              </p>
+            )}
+          </>
         ) : (
           <p className="mt-3 text-sm text-stone-500">Track time as you go, or add it later.</p>
         )}
@@ -115,7 +126,7 @@ export function MinistryTimer({
             Start Ministry
           </Button>
           <Button variant="secondary" className="w-full" onClick={onStartManual}>
-            {hasTime ? "Edit Time Manually" : "Add Time Manually"}
+            Add Time Manually
           </Button>
         </div>
         {error && <p className="mt-2 text-xs text-rose-600">{error}</p>}
@@ -258,6 +269,17 @@ export function MinistryTimer({
       <p className="font-display text-4xl font-semibold tracking-tight text-emerald-800">
         {formatDurationFromMs(elapsedMs)}
       </p>
+      <p className="flex items-center gap-1.5 text-sm text-amber-700">
+        <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" aria-hidden />
+        {isPaused
+          ? "Paused — not counted until resumed and saved"
+          : "Currently running — not yet saved"}
+      </p>
+      {monthMinutes > 0 && (
+        <p className="text-xs text-stone-500">
+          {format(new Date(), "MMMM")} completed so far: {formatDuration(monthMinutes)}
+        </p>
+      )}
       {isLong && (
         <p className="flex items-center gap-1.5 text-xs text-amber-700">
           <AlertTriangle className="h-3.5 w-3.5" />

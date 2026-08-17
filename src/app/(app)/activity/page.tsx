@@ -11,8 +11,8 @@ import {
   monthRange,
   todayISO,
   weekRange,
-  minutesBetween,
 } from "@/lib/utils";
+import { sumMinutesForRange, groupMinutesByDate } from "@/lib/ministry-time";
 import { isBefore, parseISO } from "date-fns";
 
 export default function ActivityPage() {
@@ -23,17 +23,10 @@ export default function ActivityPage() {
   const month = monthRange();
 
   const stats = useMemo(() => {
-    // Ministry minutes come only from daily ministry time records.
+    // Ministry minutes come only from saved ministry_sessions rows — the
+    // same shared helper Today and Calendar use, so totals never drift.
     const minutesFor = (start: string, end: string) =>
-      sessions
-        .filter((s) => s.session_date >= start && s.session_date <= end)
-        .reduce((sum, s) => {
-          if (s.duration_minutes != null) return sum + s.duration_minutes;
-          if (s.end_time) {
-            return sum + minutesBetween(s.start_time, s.end_time);
-          }
-          return sum;
-        }, 0);
+      sumMinutesForRange(sessions, start, end);
 
     const convCount = (start: string, end: string) =>
       conversations.filter(
@@ -83,13 +76,7 @@ export default function ActivityPage() {
   }, [sessions, conversations, returnVisits, people, today, week, month]);
 
   const recentDays = useMemo(() => {
-    const byDate = new Map<string, number>();
-    for (const s of sessions) {
-      const mins =
-        s.duration_minutes ??
-        (s.end_time ? minutesBetween(s.start_time, s.end_time) : 0);
-      byDate.set(s.session_date, (byDate.get(s.session_date) || 0) + mins);
-    }
+    const byDate = groupMinutesByDate(sessions);
     return [...byDate.entries()]
       .sort((a, b) => b[0].localeCompare(a[0]))
       .slice(0, 14);

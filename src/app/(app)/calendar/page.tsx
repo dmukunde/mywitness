@@ -30,7 +30,9 @@ import {
   TimeField,
 } from "@/components/ui";
 import { StatusBadge } from "@/components/badges";
-import { cn, formatDisplayDate, todayISO } from "@/lib/utils";
+import { MinistryDaySessions } from "@/components/MinistryDaySessions";
+import { cn, formatDisplayDate, formatDuration, todayISO } from "@/lib/utils";
+import { groupMinutesByDate, sessionsOnDate } from "@/lib/ministry-time";
 import type {
   MinistryEventType,
   ScheduledMinistryEvent,
@@ -123,6 +125,7 @@ function CalendarInner() {
     people,
     returnVisits,
     bibleStudies,
+    sessions,
     createReturnVisit,
     saveBibleStudy,
     findDuplicateEvent,
@@ -184,6 +187,19 @@ function CalendarInner() {
 
   const selectedEvents = eventsOnDay(selectedDay);
   const isSelectedToday = selectedDay === today;
+
+  const ministryByDate = useMemo(() => groupMinutesByDate(sessions), [sessions]);
+  const selectedDayMinutes = ministryByDate.get(selectedDay) || 0;
+  const selectedDaySessions = useMemo(
+    () => sessionsOnDate(sessions, selectedDay),
+    [sessions, selectedDay]
+  );
+  const [showMinistryDetail, setShowMinistryDetail] = useState(false);
+  const [syncedSelectedDay, setSyncedSelectedDay] = useState(selectedDay);
+  if (selectedDay !== syncedSelectedDay) {
+    setSyncedSelectedDay(selectedDay);
+    setShowMinistryDetail(false);
+  }
 
   const goToToday = () => {
     setView("month");
@@ -561,6 +577,7 @@ function CalendarInner() {
           <LegendDot className="bg-amber-500" label="Bible Study" />
           <LegendDot className="bg-rose-500" label="Overdue" />
           <LegendDot className="bg-emerald-500" label="Completed" />
+          <LegendDot className="bg-sky-500" label="Ministry time" />
         </div>
       </Card>
 
@@ -609,6 +626,7 @@ function CalendarInner() {
               const hasStudy = dayEvents.some(
                 (e) => e.event_type === "bible_study"
               );
+              const hasMinistryTime = ministryByDate.has(iso);
               const selected = iso === selectedDay;
               const isToday = isSameDay(day, parseISO(today));
 
@@ -645,6 +663,14 @@ function CalendarInner() {
                         )}
                       />
                     )}
+                    {hasMinistryTime && (
+                      <span
+                        className={cn(
+                          "h-1.5 w-1.5 rounded-full bg-sky-500",
+                          selected && "bg-sky-200"
+                        )}
+                      />
+                    )}
                   </span>
                 </button>
               );
@@ -655,6 +681,28 @@ function CalendarInner() {
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">
               {isSelectedToday ? "Today" : formatDisplayDate(selectedDay)}
             </p>
+            {selectedDayMinutes > 0 && (
+              <div className="mb-2">
+                <button
+                  type="button"
+                  onClick={() => setShowMinistryDetail((v) => !v)}
+                  className="flex w-full items-center justify-between rounded-2xl bg-sky-50 px-4 py-3 text-left ring-1 ring-sky-100"
+                >
+                  <span className="flex items-center gap-2 text-sm font-medium text-sky-900">
+                    <span className="h-2 w-2 rounded-full bg-sky-500" aria-hidden />
+                    {formatDuration(selectedDayMinutes)} ministry
+                  </span>
+                  <span className="text-xs font-medium text-sky-700">
+                    {showMinistryDetail ? "Hide" : "Details"}
+                  </span>
+                </button>
+                {showMinistryDetail && (
+                  <div className="mt-2">
+                    <MinistryDaySessions sessions={selectedDaySessions} />
+                  </div>
+                )}
+              </div>
+            )}
             {selectedEvents.length === 0 ? (
               <EmptyState
                 title={

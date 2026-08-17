@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, Search } from "lucide-react";
 import { useApp } from "@/lib/app-context";
 import {
@@ -11,7 +12,7 @@ import {
   PageHeader,
   Select,
 } from "@/components/ui";
-import { StatusBadge } from "@/components/badges";
+import { StatusBadge, SuccessBanner } from "@/components/badges";
 import {
   isStudyOverdue,
   studyProgressLabel,
@@ -23,8 +24,15 @@ import type { BibleStudy, BibleStudyStatus } from "@/lib/types";
 type SortKey = "next" | "recent" | "name" | "progress";
 type FilterKey = "all" | BibleStudyStatus | "overdue";
 
-export default function BibleStudiesPage() {
+function BibleStudiesInner() {
   const { bibleStudies, people, areas } = useApp();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [dismissedBanner, setDismissedBanner] = useState(false);
+  const deletedBanner =
+    !dismissedBanner && searchParams.get("deleted") === "1"
+      ? "Bible study deleted."
+      : null;
   const today = todayISO();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
@@ -110,6 +118,17 @@ export default function BibleStudiesPage() {
         }
       />
 
+      {deletedBanner && (
+        <SuccessBanner
+          onDismiss={() => {
+            setDismissedBanner(true);
+            router.replace("/bible-studies", { scroll: false });
+          }}
+        >
+          {deletedBanner}
+        </SuccessBanner>
+      )}
+
       <div className="grid grid-cols-4 gap-2">
         <SummaryChip label="Active" value={counts.active} />
         <SummaryChip label="Paused" value={counts.paused} />
@@ -185,6 +204,14 @@ export default function BibleStudiesPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function BibleStudiesPage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-stone-500">Loading…</p>}>
+      <BibleStudiesInner />
+    </Suspense>
   );
 }
 
