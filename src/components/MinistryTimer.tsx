@@ -102,7 +102,7 @@ export function MinistryTimer({
               {formatDuration(monthMinutes)} completed
             </p>
             {allTimeMinutes > 0 && (
-              <p className="mt-1 text-sm text-stone-500">
+              <p className="mt-1 text-sm font-medium text-amber-800">
                 All-time ministry: {formatDuration(allTimeMinutes)}
               </p>
             )}
