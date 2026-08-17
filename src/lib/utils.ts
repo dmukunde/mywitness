@@ -1,7 +1,16 @@
 import { format, formatDistanceToNow, isToday, isTomorrow, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, differenceInMinutes } from "date-fns";
+import { twMerge } from "tailwind-merge";
 
+/**
+ * Joins class names AND resolves conflicting Tailwind utilities (e.g. a
+ * variant's `text-stone-700` vs. a caller's `text-rose-700` override) by
+ * keeping the later one — plain string concatenation left this to
+ * Tailwind's internal stylesheet order, not the order classes appear here,
+ * which silently broke every colored ghost/secondary button's intended
+ * color across the app.
+ */
 export function cn(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(" ");
+  return twMerge(classes.filter(Boolean).join(" "));
 }
 
 /** Convert empty strings to null for UUID / optional DB fields */

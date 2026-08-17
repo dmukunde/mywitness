@@ -10,10 +10,17 @@ import {
   Input,
   PageHeader,
   SectionTitle,
+  Select,
 } from "@/components/ui";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { BackupRestore } from "@/components/BackupRestore";
 import { todayISO } from "@/lib/utils";
+import { formatDbError } from "@/lib/db-errors";
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -368,6 +375,39 @@ export default function SettingsPage() {
           >
             Enter hours &amp; minutes
           </Button>
+          <div className="border-t border-stone-100 pt-3">
+            <Select
+              label="Year total starts in"
+              value={String(settings?.service_year_start_month ?? 9)}
+              onChange={async (e) => {
+                const value = Number(e.target.value);
+                try {
+                  await updateSettings({ service_year_start_month: value });
+                  setMessage(null);
+                } catch (err) {
+                  setMessage(
+                    formatDbError(
+                      "save service year setting",
+                      err,
+                      "Could not save this setting."
+                    )
+                  );
+                }
+              }}
+            >
+              {MONTH_NAMES.map((name, i) => (
+                <option key={name} value={i + 1}>
+                  {name}
+                </option>
+              ))}
+            </Select>
+            <p className="mt-2 text-xs text-stone-500">
+              Controls the &ldquo;Year total&rdquo; shown on Today and
+              Activity. Defaults to September, matching the usual
+              service-year convention —
+              choose January for an ordinary calendar year instead.
+            </p>
+          </div>
           {manualOpen && (
             <div className="space-y-3 pt-2">
               <div className="grid grid-cols-2 gap-3">

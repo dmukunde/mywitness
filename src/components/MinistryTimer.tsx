@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Pause, Play, Square, X } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, ChevronRight, Pause, Play, Square, X } from "lucide-react";
 import { useApp } from "@/lib/app-context";
 import { Button, Card, Input, Textarea } from "@/components/ui";
 import { formatDuration, formatDurationFromMs } from "@/lib/utils";
@@ -43,6 +44,7 @@ export function MinistryTimer({
   onStartManual,
   todaysMinutes,
   monthMinutes,
+  yearMinutes,
 }: {
   /** Opens the existing manual hours/minutes editor. */
   onStartManual: () => void;
@@ -50,6 +52,8 @@ export function MinistryTimer({
   todaysMinutes: number;
   /** Minutes already saved this month (sum of saved sessions — never the live timer). */
   monthMinutes: number;
+  /** Minutes already saved in the current year/service-year window. */
+  yearMinutes: number;
 }) {
   const { activeMinistrySession, startMinistryTimer, endMinistryTimer, discardMinistryTimer } =
     useApp();
@@ -100,15 +104,21 @@ export function MinistryTimer({
             <p className="mt-2 font-display text-2xl font-semibold text-emerald-800">
               {formatDuration(monthMinutes)} completed
             </p>
-            {todaysMinutes > 0 && (
-              <p className="mt-1 text-sm text-stone-500">
-                Today: {formatDuration(todaysMinutes)}
-              </p>
-            )}
+            <div className="mt-1 flex items-center justify-between text-sm text-stone-500">
+              <span>{todaysMinutes > 0 ? `Today: ${formatDuration(todaysMinutes)}` : ""}</span>
+              {yearMinutes > 0 && <span>Year total: {formatDuration(yearMinutes)}</span>}
+            </div>
           </>
         ) : (
           <p className="mt-3 text-sm text-stone-500">Track time as you go, or add it later.</p>
         )}
+        <Link
+          href="/activity"
+          className="mt-1 inline-flex items-center gap-0.5 text-xs font-medium text-emerald-800"
+        >
+          View activity history
+          <ChevronRight className="h-3.5 w-3.5" />
+        </Link>
         <div className="mt-4 space-y-2">
           <Button
             variant="record"
@@ -280,6 +290,13 @@ export function MinistryTimer({
           {format(new Date(), "MMMM")} completed so far: {formatDuration(monthMinutes)}
         </p>
       )}
+      <Link
+        href="/activity"
+        className="inline-flex items-center gap-0.5 text-xs font-medium text-emerald-800"
+      >
+        View activity history
+        <ChevronRight className="h-3.5 w-3.5" />
+      </Link>
       {isLong && (
         <p className="flex items-center gap-1.5 text-xs text-amber-700">
           <AlertTriangle className="h-3.5 w-3.5" />

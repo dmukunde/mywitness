@@ -54,6 +54,8 @@ export interface UserSettings {
   browser_notifications_enabled: boolean;
   reminder_minutes_before: number;
   demo_mode_enabled: boolean;
+  /** 1-12. Defaults to 9 (September, the JW service-year convention); 1 = ordinary calendar year. */
+  service_year_start_month: number;
   created_at: string;
   updated_at: string;
 }

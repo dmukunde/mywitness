@@ -22,7 +22,7 @@ import {
   todayISO,
   monthRange,
 } from "@/lib/utils";
-import { sumMinutesForRange, sessionsOnDate } from "@/lib/ministry-time";
+import { sumMinutesForRange, sessionsOnDate, yearRangeFor } from "@/lib/ministry-time";
 
 function TodayInner() {
   const router = useRouter();
@@ -37,6 +37,7 @@ function TodayInner() {
     dismissReminder,
     displayName,
     saveDailyMinistryTime,
+    settings,
   } = useApp();
   const [editOpen, setEditOpen] = useState(false);
   const [dismissedBanner, setDismissedBanner] = useState(false);
@@ -94,6 +95,8 @@ function TodayInner() {
   );
 
   const month = useMemo(() => monthRange(), []);
+  const yearStartMonth = settings?.service_year_start_month ?? 9;
+  const year = useMemo(() => yearRangeFor(yearStartMonth), [yearStartMonth]);
   const todaysSessions = useMemo(
     () => sessionsOnDate(sessions, today),
     [sessions, today]
@@ -105,6 +108,10 @@ function TodayInner() {
   const monthMinistryMinutes = useMemo(
     () => sumMinutesForRange(sessions, month.start, month.end),
     [sessions, month]
+  );
+  const yearMinistryMinutes = useMemo(
+    () => sumMinutesForRange(sessions, year.start, year.end),
+    [sessions, year]
   );
 
   const hasMinistryTime = todaysMinistryMinutes > 0;
@@ -158,6 +165,7 @@ function TodayInner() {
         onStartManual={() => setEditOpen(true)}
         todaysMinutes={todaysMinistryMinutes}
         monthMinutes={monthMinistryMinutes}
+        yearMinutes={yearMinistryMinutes}
       />
       <MinistryDaySessions sessions={todaysSessions} />
       {hasMinistryTime && (

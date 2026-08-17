@@ -162,6 +162,7 @@ const defaultSettings = (userId: string): UserSettings => ({
   browser_notifications_enabled: true,
   reminder_minutes_before: 60,
   demo_mode_enabled: true,
+  service_year_start_month: 9,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
 });
