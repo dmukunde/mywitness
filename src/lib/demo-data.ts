@@ -10,6 +10,7 @@ import type {
   Reminder,
   ReturnVisit,
   ScheduledMinistryEvent,
+  StudyNote,
 } from "./types";
 import { todayISO, getNextSaturdayAfternoon } from "./utils";
 
@@ -418,6 +419,39 @@ export function createDemoData() {
   const studySessions: BibleStudySession[] = [];
   const ministryEvents = eventsFromReturnVisits(returnVisits);
 
+  const studyNotes: StudyNote[] = [
+    {
+      id: "demo-note-family-worship",
+      user_id: DEMO_USER,
+      note_type: "family_worship",
+      title: "What can we learn from Paul's example?",
+      session_label: null,
+      note_date: lastWeekISO,
+      scripture_refs: "Acts 20:20\n1 Corinthians 9:22, 23",
+      references_text: "https://www.jw.org",
+      body: "Paul adapted his approach for each audience while staying focused on the good news.\n\nThings we want to discuss:\n- How can we do this in our own ministry?\n\nPersonal application:\n- Be more flexible in how we start conversations.",
+      is_comment: false,
+      archived_at: null,
+      created_at: lastWeek.toISOString(),
+      updated_at: lastWeek.toISOString(),
+    },
+    {
+      id: "demo-note-weekend-comment",
+      user_id: DEMO_USER,
+      note_type: "weekend_meeting",
+      title: "Watchtower Study",
+      session_label: "Paragraph 7",
+      note_date: yesterdayISO,
+      scripture_refs: "Romans 12:12",
+      references_text: null,
+      body: "Key point: endurance comes from hope.\n\nMy comment: sharing how staying hopeful helped during a hard week at work.",
+      is_comment: true,
+      archived_at: null,
+      created_at: yesterday.toISOString(),
+      updated_at: yesterday.toISOString(),
+    },
+  ];
+
   return {
     people,
     conversations: [joanConversation, marcusConversation, maryConversation],
@@ -430,6 +464,7 @@ export function createDemoData() {
     ministryEvents,
     areas,
     personPhotos,
+    studyNotes,
   };
 }
 
@@ -455,5 +490,6 @@ export function normalizeDemoData(raw: Partial<DemoData> | null | undefined): De
         : eventsFromReturnVisits(returnVisits),
     areas: raw.areas || fresh.areas,
     personPhotos: raw.personPhotos || [],
+    studyNotes: raw.studyNotes || [],
   };
 }

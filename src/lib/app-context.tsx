@@ -34,6 +34,8 @@ import type {
   Reminder,
   ReturnVisit,
   ScheduledMinistryEvent,
+  StudyNote,
+  StudyNoteFormData,
   UserSettings,
 } from "@/lib/types";
 import { emptyToNull, minutesBetween, parseScriptures, sanitizeDisplayName, todayISO } from "@/lib/utils";
@@ -66,6 +68,7 @@ interface AppContextValue {
   ministryEvents: ScheduledMinistryEvent[];
   areas: Area[];
   personPhotos: PersonPhoto[];
+  studyNotes: StudyNote[];
   /** The one open (end_time null) ministry session for this user, if any. */
   activeMinistrySession: MinistrySession | null;
   refresh: () => Promise<void>;
@@ -99,6 +102,13 @@ interface AppContextValue {
   discardMinistryTimer: () => Promise<void>;
   findOrCreateArea: (name: string) => Promise<string | null>;
   saveArea: (id: string, patch: Partial<Area>) => Promise<Area>;
+  /** Create (no id) or update (existingId) a Study Notebook entry. */
+  saveStudyNote: (
+    form: StudyNoteFormData,
+    existingId?: string
+  ) => Promise<StudyNote>;
+  /** Soft-delete: hides the note from the notebook but never destroys it. */
+  archiveStudyNote: (id: string) => Promise<void>;
   addPersonPhoto: (
     personId: string,
     photoPath: string,
@@ -185,6 +195,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
   const [areas, setAreas] = useState<Area[]>([]);
   const [personPhotos, setPersonPhotos] = useState<PersonPhoto[]>([]);
+  const [studyNotes, setStudyNotes] = useState<StudyNote[]>([]);
   const [scripturesMap, setScripturesMap] = useState<
     Record<string, { id: string; scripture_reference: string }[]>
   >({});
@@ -237,6 +248,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }))
     );
     setStudySessions(data.studySessions || []);
+    setStudyNotes((data.studyNotes || []).filter((n) => !n.archived_at));
     setMinistryEvents(
       (data.ministryEvents || []).map((e) => ({
         ...e,
@@ -275,6 +287,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         eventsRes,
         areasRes,
         photosRes,
+        studyNotesRes,
       ] = await Promise.all([
         supabase.from("profiles").select("*").eq("id", uid).maybeSingle(),
         supabase
@@ -336,6 +349,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           .select("*")
           .eq("user_id", uid)
           .order("sort_order", { ascending: true }),
+        supabase
+          .from("study_notes")
+          .select("*")
+          .eq("user_id", uid)
+          .is("archived_at", null)
+          .order("note_date", { ascending: false }),
       ]);
 
       const firstError =
@@ -388,6 +407,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           areasRes: areasRes.error,
           photosRes: photosRes.error,
         });
+      }
+
+      const studyNotesTableMissing =
+        studyNotesRes.error?.message?.includes("does not exist") ||
+        studyNotesRes.error?.code === "42P01";
+      if (studyNotesRes.error && !studyNotesTableMissing) {
+        console.error("Study Notebook load error:", studyNotesRes.error);
       }
 
       const scriptureByConv =
@@ -461,6 +487,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
       setSettings((settingsRes.data as UserSettings) || defaultSettings(uid));
       setScripturesMap(scriptureByConv);
+      setStudyNotes(
+        studyNotesTableMissing ? [] : (studyNotesRes.data as StudyNote[]) || []
+      );
     },
     []
   );
@@ -478,36 +507,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
+    async function enterDemoMode() {
+      if (!mounted) return;
+      setDemoModeState(true);
+      setUser({
+        id: "demo-user",
+        email: "demo@mywitness.app",
+        aud: "authenticated",
+        app_metadata: {},
+        user_metadata: { display_name: "Doreen" },
+        created_at: new Date().toISOString(),
+      } as User);
+      setDisplayName("Doreen");
+      applyDemo(loadDemoData());
+      setSettings(defaultSettings("demo-user"));
+      setLoading(false);
+    }
+
     async function init() {
-      const demo = isDemoMode();
-      if (demo) {
-        if (!mounted) return;
-        setDemoModeState(true);
-        setUser({
-          id: "demo-user",
-          email: "demo@mywitness.app",
-          aud: "authenticated",
-          app_metadata: {},
-          user_metadata: { display_name: "Doreen" },
-          created_at: new Date().toISOString(),
-        } as User);
-        setDisplayName("Doreen");
-        applyDemo(loadDemoData());
-        setSettings(defaultSettings("demo-user"));
-        setLoading(false);
-        return;
-      }
-
       if (!isSupabaseConfigured()) {
-        setLoading(false);
+        // No real backend to check — demo mode (if set) is all we can offer.
+        if (isDemoMode()) {
+          await enterDemoMode();
+        } else {
+          setLoading(false);
+        }
         return;
       }
-
-      const savedName =
-        typeof window !== "undefined"
-          ? localStorage.getItem(DISPLAY_NAME_KEY) || ""
-          : "";
-      // Don't seed from localStorage until we know the email (avoids email usernames)
 
       const supabase = createClient();
       const {
@@ -515,11 +541,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         error: authError,
       } = await supabase.auth.getUser();
       if (!mounted) return;
-      if (authError) {
-        console.error(authError);
-      }
-      setUser(authUser);
+
+      // A real signed-in session always takes precedence over a stale
+      // "Try with demo data" flag left over from before this sign-in —
+      // otherwise a user who demoed the app and then created/signed into a
+      // real account would keep seeing fictional demo data indefinitely.
       if (authUser) {
+        if (isDemoMode()) persistDemoMode(false);
+        setDemoModeState(false);
+
+        const savedName =
+          typeof window !== "undefined"
+            ? localStorage.getItem(DISPLAY_NAME_KEY) || ""
+            : "";
+        setUser(authUser);
         const safeSaved = sanitizeDisplayName(savedName, authUser.email);
         if (safeSaved) setDisplayName(safeSaved);
         try {
@@ -527,45 +562,59 @@ export function AppProvider({ children }: { children: ReactNode }) {
         } catch (err) {
           console.error(err);
         }
+        setLoading(false);
+
+        const {
+          data: { subscription },
+        } = supabase.auth.onAuthStateChange(async (event, session) => {
+          setUser(session?.user ?? null);
+          if (
+            session?.user &&
+            (event === "SIGNED_IN" ||
+              event === "TOKEN_REFRESHED" ||
+              event === "INITIAL_SESSION")
+          ) {
+            try {
+              await refreshFromSupabase(session.user.id, session.user.email);
+            } catch (err) {
+              console.error(err);
+            }
+          }
+          if (event === "SIGNED_OUT") {
+            setPeople([]);
+            setConversations([]);
+            setReturnVisits([]);
+            setSessions([]);
+            setReminders([]);
+            setBibleStudies([]);
+            setStudySessions([]);
+            setMinistryEvents([]);
+            setAreas([]);
+            setPersonPhotos([]);
+            setSettings(null);
+            setDisplayName("");
+            if (typeof window !== "undefined") {
+              localStorage.removeItem(DISPLAY_NAME_KEY);
+            }
+          }
+        });
+
+        return () => subscription.unsubscribe();
       }
-      setLoading(false);
 
-      const {
-        data: { subscription },
-      } = supabase.auth.onAuthStateChange(async (event, session) => {
-        setUser(session?.user ?? null);
-        if (
-          session?.user &&
-          (event === "SIGNED_IN" ||
-            event === "TOKEN_REFRESHED" ||
-            event === "INITIAL_SESSION")
-        ) {
-          try {
-            await refreshFromSupabase(session.user.id, session.user.email);
-          } catch (err) {
-            console.error(err);
-          }
-        }
-        if (event === "SIGNED_OUT") {
-          setPeople([]);
-          setConversations([]);
-          setReturnVisits([]);
-          setSessions([]);
-          setReminders([]);
-          setBibleStudies([]);
-          setStudySessions([]);
-          setMinistryEvents([]);
-          setAreas([]);
-          setPersonPhotos([]);
-          setSettings(null);
-          setDisplayName("");
-          if (typeof window !== "undefined") {
-            localStorage.removeItem(DISPLAY_NAME_KEY);
-          }
-        }
-      });
+      // No real session. `getUser()` reports an expected
+      // AuthSessionMissingError for every anonymous visit — that's normal,
+      // not a bug, so only surface genuinely unexpected auth errors.
+      if (authError && authError.name !== "AuthSessionMissingError") {
+        console.error(authError);
+      }
 
-      return () => subscription.unsubscribe();
+      if (isDemoMode()) {
+        await enterDemoMode();
+      } else {
+        setUser(null);
+        setLoading(false);
+      }
     }
 
     const cleanup = init();
@@ -1157,6 +1206,91 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (error) throw error;
       await refresh();
       return data as Area;
+    },
+    [applyDemo, demoMode, refresh]
+  );
+
+  const saveStudyNote = useCallback(
+    async (form: StudyNoteFormData, existingId?: string) => {
+      const now = new Date().toISOString();
+      const payload = {
+        note_type: form.note_type,
+        title: form.title.trim(),
+        session_label: emptyToNull(form.session_label.trim()),
+        note_date: form.note_date || todayISO(),
+        scripture_refs: emptyToNull(form.scripture_refs.trim()),
+        references_text: emptyToNull(form.references_text.trim()),
+        body: emptyToNull(form.body.trim()),
+        is_comment: form.is_comment,
+      };
+
+      if (demoMode) {
+        const data = loadDemoData();
+        if (existingId) {
+          data.studyNotes = (data.studyNotes || []).map((n) =>
+            n.id === existingId ? { ...n, ...payload, updated_at: now } : n
+          );
+          saveDemoData(data);
+          applyDemo(data);
+          return data.studyNotes.find((n) => n.id === existingId)!;
+        }
+        const created: StudyNote = {
+          id: crypto.randomUUID(),
+          user_id: "demo-user",
+          archived_at: null,
+          created_at: now,
+          updated_at: now,
+          ...payload,
+        };
+        data.studyNotes = [created, ...(data.studyNotes || [])];
+        saveDemoData(data);
+        applyDemo(data);
+        return created;
+      }
+
+      const supabase = createClient();
+      if (existingId) {
+        const { data, error } = await supabase
+          .from("study_notes")
+          .update(payload)
+          .eq("id", existingId)
+          .select()
+          .single();
+        if (error) throw error;
+        await refresh();
+        return data as StudyNote;
+      }
+      const { data, error } = await supabase
+        .from("study_notes")
+        .insert({ ...payload, user_id: user!.id })
+        .select()
+        .single();
+      if (error) throw error;
+      await refresh();
+      return data as StudyNote;
+    },
+    [applyDemo, demoMode, refresh, user]
+  );
+
+  const archiveStudyNote = useCallback(
+    async (id: string) => {
+      const now = new Date().toISOString();
+      if (demoMode) {
+        const data = loadDemoData();
+        data.studyNotes = (data.studyNotes || []).map((n) =>
+          n.id === id ? { ...n, archived_at: now, updated_at: now } : n
+        );
+        saveDemoData(data);
+        applyDemo(data);
+        return;
+      }
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("study_notes")
+        .update({ archived_at: now })
+        .eq("id", id);
+      if (error) throw error;
+      await refresh();
     },
     [applyDemo, demoMode, refresh]
   );
@@ -1837,6 +1971,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ministryEvents,
     areas,
     personPhotos,
+    studyNotes,
     activeMinistrySession,
     refresh,
     enableDemoMode,
@@ -1853,6 +1988,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     discardMinistryTimer,
     findOrCreateArea,
     saveArea,
+    saveStudyNote,
+    archiveStudyNote,
     addPersonPhoto,
     updatePersonPhotoCaption,
     deletePersonPhoto,

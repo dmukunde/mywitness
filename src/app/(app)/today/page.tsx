@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Mic, NotebookPen } from "lucide-react";
+import { Mic, NotebookPen, NotebookText } from "lucide-react";
 import { useApp } from "@/lib/app-context";
 import { Button, Card, EmptyState, SectionTitle } from "@/components/ui";
 import { MinistryTimeEditor } from "@/components/MinistryTimeEditor";
@@ -187,6 +187,20 @@ function TodayInner() {
           Write Notes
         </Button>
       </div>
+
+      <Card onClick={() => router.push("/notebook")}>
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-stone-100">
+            <NotebookText className="h-5 w-5 text-stone-600" />
+          </div>
+          <div className="min-w-0">
+            <p className="font-medium text-stone-900">Study Notebook</p>
+            <p className="truncate text-sm text-stone-500">
+              Family Worship, meeting prep, and your own notes
+            </p>
+          </div>
+        </div>
+      </Card>
 
       {reminders.length > 0 && (
         <section>

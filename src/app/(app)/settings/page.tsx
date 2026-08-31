@@ -46,6 +46,7 @@ export default function SettingsPage() {
     studySessions,
     ministryEvents,
     reminders,
+    studyNotes,
   } = useApp();
 
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -75,6 +76,7 @@ export default function SettingsPage() {
       scheduled_ministry_events: ministryEvents,
       ministry_sessions: sessions,
       reminders,
+      study_notes: studyNotes,
       settings,
       disclaimer:
         "MyWitness is an independent personal organization tool designed to help individuals organize ministry notes, conversations, and return visits. It is not affiliated with, endorsed by, or produced by Jehovah’s Witnesses or any of their legal entities.",
@@ -402,9 +404,9 @@ export default function SettingsPage() {
               ))}
             </Select>
             <p className="mt-2 text-xs text-stone-500">
-              Controls the &ldquo;Year total&rdquo; shown on Today and
-              Activity. Defaults to September, matching the usual
-              service-year convention —
+              Controls the &ldquo;Year total&rdquo; shown on Activity.
+              Defaults to September, matching the usual service-year
+              convention —
               choose January for an ordinary calendar year instead.
             </p>
           </div>
@@ -534,6 +536,29 @@ export default function SettingsPage() {
           {message}
         </p>
       )}
+
+      <section>
+        <SectionTitle title="Feedback" />
+        <Card className="space-y-2">
+          <p className="text-sm text-stone-600">
+            Notice a bug, or have an idea for the pilot? Send it directly.
+          </p>
+          <Button
+            variant="secondary"
+            className="w-full"
+            onClick={() => {
+              const subject = encodeURIComponent("MyWitness Feedback");
+              const body = encodeURIComponent(
+                "What happened, or what would you like to see?\n\n\n---\nPage: " +
+                  (typeof window !== "undefined" ? window.location.pathname : "")
+              );
+              window.location.href = `mailto:mukunded@gmail.com?subject=${subject}&body=${body}`;
+            }}
+          >
+            Send Feedback
+          </Button>
+        </Card>
+      </section>
 
       <section>
         <SectionTitle title="About" />

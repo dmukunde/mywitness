@@ -201,6 +201,7 @@ All tables live in Supabase Postgres, defined across 5 additive migrations in `s
 - **Activity summaries** — personal reflection view over recorded ministry time and conversations.
 - **Demo mode** — complete fictional dataset (including a sample contact "Joan"), zero backend required, clearly banner-marked in the UI.
 - **Account & data controls** — Supabase-authenticated accounts, RLS-protected data, JSON data export, full account deletion (service-role cascade across all tables + storage).
+- **Study Notebook** (`/notebook`) — a private place for the user's own preparation and notes (Family Worship, meeting prep, convention notes, personal study), separate from ministry records. See §8.
 
 ---
 
@@ -229,4 +230,41 @@ Ordered by leverage — earlier items unblock or de-risk later ones. (See the fu
 
 ---
 
-*Last reviewed: 2026-07-28, against commit `db470fd` ("Add Bible Studies, calendar, and ministry scheduling").*
+## 8. Study Notebook
+
+Implemented 2026-08-31. Originally captured as a design-only concept the same day (see git history for that version); this section now reflects what actually shipped.
+
+**Product framing.** JW Library / JW.org remain where the user reads official material. MyWitness's Study Notebook is a private place to organize *their own* preparation, comments, and reflections — it never stores, scrapes, or reproduces JW.org/JW Library publication content.
+
+**Route.** `/notebook` (list, search, filter) → `/notebook/new` (type picker → shared editor) → `/notebook/[id]` (view → edit → archive). Not a 6th bottom-nav tab — entered via a card on **Today**, following the same pattern already used by Activity and Areas (real destinations that aren't in the nav).
+
+**Data model — one shared table**, no `parent_id`/nesting (shipped simpler than the original design: a convention talk is its own note using `session_label`, e.g. "Saturday Morning — Symposium"):
+
+```
+study_notes
+  id, user_id
+  note_type          -- family_worship | midweek_meeting | weekend_meeting
+                         | convention | personal_study | other
+  title, session_label, note_date
+  scripture_refs     -- reuses parseScriptures()/scripturesToString() as-is
+  references_text    -- pasted JW.org links / publication mentions, free text
+  body               -- the actual notes/questions/application
+  is_comment         -- the "comment I want to give" marker
+  archived_at, created_at, updated_at
+```
+
+Migration: `supabase/migrations/012_study_notes.sql`. RLS: `auth.uid() = user_id` for all operations, identical to every other table. Soft-delete via `archived_at`, identical to `bible_studies`.
+
+**Reused as-is:** the `archived_at` convention, the RLS policy shape, `set_updated_at()` trigger, `parseScriptures`/`scripturesToString`, `ConfirmDialog`/`PageHeader`/`Card`/`ScriptureBadgeList`, the "table might not exist yet" graceful-degradation pattern (`bibleTablesMissing` → `studyNotesTableMissing`), and the fetch-everything-then-filter-client-side architecture already used by every other list in the app.
+
+**Search:** plain client-side substring match over title, session label, scriptures, references, and body (`searchStudyNotes` in `src/lib/study-notes.ts`, unit-tested). Deliberately does **not** use the dormant `idx_people_search`/`idx_conversations_search` GIN full-text pattern — introducing a first real usage of that pattern for a personal, small-scale dataset was judged over-engineering; a third unused index would have been worse than none. Matching is a literal substring, so multi-word queries must appear contiguously (e.g. "firm under pressure" won't match "...firm even under pressure...") — acceptable for the current scale, worth revisiting only if real usage shows it's confusing.
+
+**JW.org linking:** an "Open JW.org" button (`window.open`) plus a free-text references field. A references line is rendered as a real, `target="_blank"` link only when the *entire* line is a valid http(s) URL (`parseReferenceLines`) — deliberately simple, no inline link-detection inside sentences.
+
+**Explicitly not in this release:** parent→child nesting (may revisit if convention notes prove hard to browse flat), a rich-text editor, cross-module/AI/semantic search, any JW.org caching or scraping, a publication database, note-triggered reminders, and Android Web Share Target integration (researched as feasible — see below — but out of scope for this milestone).
+
+**JW Library sharing feasibility — researched, not assumed, not built:** JW Library confirms a "Copy Link" / "Share via Email" / QR share feature and an "Open in" hand-off to other apps, backed by the OS's native share mechanism. Android PWAs can register as a share target via the standard `share_target` manifest field — a real, plausible future enhancement. iOS Safari does not allow home-screen web apps to act as a share-sheet target at all (a hard platform limitation) — "share into MyWitness" isn't buildable on iOS as a PWA regardless of what JW Library exposes. Neither platform's behavior is depended on today; a pasted link works identically everywhere.
+
+---
+
+*Last reviewed: 2026-07-28, against commit `db470fd` ("Add Bible Studies, calendar, and ministry scheduling"). Section 8 (Study Notebook) added as a design concept 2026-08-31 and updated the same day once implemented — §§1–7 predate both and have not been re-verified against the current codebase.*

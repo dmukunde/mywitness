@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button, Input, Textarea } from "@/components/ui";
 import { formatDuration, todayISO } from "@/lib/utils";
 import { format, parseISO } from "date-fns";
@@ -35,15 +35,22 @@ export function MinistryTimeEditor({
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Tracks the `open` value we last reseeded local state for. Adjusting
+  // state during render (rather than in an effect) on the false->true
+  // transition is the React-recommended way to reset a form from props
+  // when it opens — see https://react.dev/learn/you-might-not-need-an-effect.
+  const [seededFor, setSeededFor] = useState(false);
 
-  useEffect(() => {
-    if (!open) return;
+  if (open && !seededFor) {
+    setSeededFor(true);
     setDate(initialDate || todayISO());
     setHours(Math.floor(initialMinutes / 60));
     setMinutes(initialMinutes % 60);
     setNotes(initialNotes || "");
     setError(null);
-  }, [open, initialDate, initialMinutes, initialNotes]);
+  } else if (!open && seededFor) {
+    setSeededFor(false);
+  }
 
   if (!open) return null;
 

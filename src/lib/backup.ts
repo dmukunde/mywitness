@@ -11,6 +11,7 @@ import type {
   Reminder,
   ReturnVisit,
   ScheduledMinistryEvent,
+  StudyNote,
 } from "@/lib/types";
 
 export const BACKUP_SCHEMA_VERSION = 1;
@@ -28,6 +29,7 @@ export interface BackupData {
   reminders: Reminder[];
   scheduled_ministry_events: ScheduledMinistryEvent[];
   person_photos: PersonPhoto[];
+  study_notes: StudyNote[];
 }
 
 export interface BackupEnvelope {
@@ -51,7 +53,16 @@ const TABLE_ORDER: (keyof BackupData)[] = [
   "bible_study_sessions",
   "scheduled_ministry_events",
   "person_photos",
+  "study_notes",
 ];
+
+/**
+ * Tables added after the original v1 backup shape. A backup file created
+ * before one of these existed won't have the key at all — that must not
+ * fail validation of an otherwise-valid older backup, so these default to
+ * an empty array instead of being required.
+ */
+const OPTIONAL_TABLES = new Set<keyof BackupData>(["study_notes"]);
 
 export type ValidationResult =
   | { ok: true; envelope: BackupEnvelope }
@@ -100,12 +111,16 @@ export function validateBackupEnvelope(json: unknown): ValidationResult {
   }
   const data = obj.data as Record<string, unknown>;
   for (const key of TABLE_ORDER) {
-    if (!Array.isArray(data[key])) {
-      return {
-        ok: false,
-        error: `Backup file is missing or has a malformed "${key}" section.`,
-      };
+    if (Array.isArray(data[key])) continue;
+    if (OPTIONAL_TABLES.has(key) && data[key] === undefined) {
+      // Older backup, predates this table — default it rather than reject.
+      data[key] = [];
+      continue;
     }
+    return {
+      ok: false,
+      error: `Backup file is missing or has a malformed "${key}" section.`,
+    };
   }
   return { ok: true, envelope: obj as unknown as BackupEnvelope };
 }
@@ -195,6 +210,7 @@ async function deleteAllMinistryData(supabase: SupabaseClient, userId: string) {
   // Children before parents.
   const tables = [
     "person_photos",
+    "study_notes",
     "scheduled_ministry_events",
     "bible_study_sessions",
     "bible_studies",

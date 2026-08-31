@@ -32,6 +32,14 @@ export type MinistryEventStatus =
   | "cancelled"
   | "rescheduled";
 
+export type StudyNoteType =
+  | "family_worship"
+  | "midweek_meeting"
+  | "weekend_meeting"
+  | "convention"
+  | "personal_study"
+  | "other";
+
 export type ReminderType =
   | "return_visit"
   | "overdue"
@@ -275,6 +283,72 @@ export interface ScheduledMinistryEvent {
   updated_at: string;
   person?: Person | null;
 }
+
+/**
+ * A personal Study Notebook entry — Family Worship, meeting preparation,
+ * convention notes, or personal study. One shared shape for every type
+ * (see PROJECT.md §8): the differences are just which fields get used, not
+ * separate tables. Never stores JW.org/JW Library publication content —
+ * only the user's own notes and pasted references.
+ */
+export interface StudyNote {
+  id: string;
+  user_id: string;
+  note_type: StudyNoteType;
+  title: string;
+  /** Free text, meaning varies by type: "Watchtower, para 12", "Saturday — Symposium Part 2". */
+  session_label: string | null;
+  note_date: string;
+  scripture_refs: string | null;
+  /** Pasted JW.org links / publication mentions — never scraped or cached content. */
+  references_text: string | null;
+  body: string | null;
+  /** The "comment I want to give" marker, mainly for meeting-prep notes. */
+  is_comment: boolean;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StudyNoteFormData {
+  note_type: StudyNoteType;
+  title: string;
+  session_label: string;
+  note_date: string;
+  scripture_refs: string;
+  references_text: string;
+  body: string;
+  is_comment: boolean;
+}
+
+export const STUDY_NOTE_TYPE_LABELS: Record<StudyNoteType, string> = {
+  family_worship: "Family Worship",
+  midweek_meeting: "Midweek Meeting",
+  weekend_meeting: "Weekend Meeting",
+  convention: "Convention / Assembly",
+  personal_study: "Personal Study",
+  other: "Other",
+};
+
+export const STUDY_NOTE_TYPES: StudyNoteType[] = [
+  "family_worship",
+  "midweek_meeting",
+  "weekend_meeting",
+  "convention",
+  "personal_study",
+  "other",
+];
+
+export const EMPTY_STUDY_NOTE_FORM: StudyNoteFormData = {
+  note_type: "family_worship",
+  title: "",
+  session_label: "",
+  note_date: new Date().toISOString().slice(0, 10),
+  scripture_refs: "",
+  references_text: "",
+  body: "",
+  is_comment: false,
+};
 
 export interface BibleStudyFormData {
   person_id: string;

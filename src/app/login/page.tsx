@@ -3,6 +3,7 @@
 import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { setDemoMode } from "@/lib/demo-store";
 import { useApp } from "@/lib/app-context";
 import { Button, Input } from "@/components/ui";
 import { isValidEmailFormat } from "@/lib/auth-errors";
@@ -40,7 +41,7 @@ function LoginForm() {
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<"signin" | "signup" | "reset">("signin");
   const [message, setMessage] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -119,6 +120,9 @@ function LoginForm() {
           );
           return;
         }
+        // A real session is starting — any leftover "Try with demo data"
+        // state from earlier in this browser must not shadow it.
+        setDemoMode(false);
         window.location.assign("/today");
         return;
       }
@@ -159,6 +163,7 @@ function LoginForm() {
       }
 
       if (data.session) {
+        setDemoMode(false);
         window.location.assign("/today");
         return;
       }
@@ -207,6 +212,50 @@ function LoginForm() {
     }
   };
 
+  const handleResetRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!configured) {
+      setFormError(
+        "Supabase is not configured. Add your project URL and anon key to .env.local, then restart the app."
+      );
+      return;
+    }
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || !isValidEmailFormat(trimmedEmail)) {
+      setFormError("Please enter a valid email address.");
+      return;
+    }
+
+    setLoading(true);
+    setFormError(null);
+    setMessage(null);
+    try {
+      const supabase = createClient();
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+        trimmedEmail,
+        {
+          redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset-password`,
+        }
+      );
+      // Supabase intentionally doesn't reveal whether the address has an
+      // account — show the same confirmation either way. Only a genuine
+      // send failure (rate limit, misconfiguration) surfaces as an error.
+      if (resetError) {
+        logAuthError("resetPassword", resetError);
+        setFormError(displayAuthMessage(resetError));
+        return;
+      }
+      setMessage(
+        "If an account exists for that email, a password reset link is on its way. Check your inbox."
+      );
+    } catch (err) {
+      console.error("[MyWitness reset unexpected]", err);
+      setFormError("Could not send the reset email right now. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const startDemo = () => {
     enableDemoMode();
     window.location.assign("/today");
@@ -227,92 +276,170 @@ function LoginForm() {
         </p>
       </div>
 
-      <form
-        onSubmit={handleAuth}
-        noValidate
-        className="mt-10 space-y-4 rounded-3xl bg-white/90 p-5 shadow-sm ring-1 ring-stone-200/70"
-      >
-        <h1 className="font-display text-xl font-semibold text-stone-900">
-          {mode === "signin" ? "Sign in" : "Create account"}
-        </h1>
-
-        {!configured && (
-          <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            Supabase keys are missing or still placeholders. Update{" "}
-            <code>.env.local</code> and restart.
+      {mode === "reset" ? (
+        <form
+          onSubmit={handleResetRequest}
+          noValidate
+          className="mt-10 space-y-4 rounded-3xl bg-white/90 p-5 shadow-sm ring-1 ring-stone-200/70"
+        >
+          <h1 className="font-display text-xl font-semibold text-stone-900">
+            Reset your password
+          </h1>
+          <p className="text-sm text-stone-600">
+            Enter your account email and we&rsquo;ll send you a link to set a
+            new password.
           </p>
-        )}
 
-        {mode === "signup" && (
+          {!configured && (
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              Supabase keys are missing or still placeholders. Update{" "}
+              <code>.env.local</code> and restart.
+            </p>
+          )}
+
           <Input
-            label="Display Name"
-            type="text"
-            autoComplete="name"
+            label="Email"
+            type="email"
+            autoComplete="email"
             required
-            placeholder="Doreen"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             disabled={!configured || loading}
           />
-        )}
-        <Input
-          label="Email"
-          type="email"
-          autoComplete="email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          disabled={!configured || loading}
-        />
-        <Input
-          label="Password"
-          type="password"
-          autoComplete={mode === "signin" ? "current-password" : "new-password"}
-          required
-          minLength={6}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          disabled={!configured || loading}
-        />
 
-        {error && (
-          <p
-            role="alert"
-            className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700"
+          {error && (
+            <p
+              role="alert"
+              className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700"
+            >
+              {typeof error === "string" && error.trim() && error.trim() !== "{}"
+                ? error
+                : SIGNUP_FALLBACK}
+            </p>
+          )}
+          {message && (
+            <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-900 ring-1 ring-emerald-200/70">
+              {message}
+            </p>
+          )}
+
+          <Button type="submit" className="w-full" disabled={loading || !configured}>
+            {loading ? "Sending…" : "Send reset link"}
+          </Button>
+
+          <button
+            type="button"
+            className="w-full text-center text-sm text-emerald-800"
+            onClick={() => {
+              setMode("signin");
+              setFormError(null);
+              setMessage(null);
+            }}
           >
-            {typeof error === "string" && error.trim() && error.trim() !== "{}"
-              ? error
-              : SIGNUP_FALLBACK}
-          </p>
-        )}
-        {message && (
-          <p className="rounded-xl bg-yellow-50 px-3 py-2 text-sm text-yellow-950 ring-1 ring-yellow-200/70">
-            {message}
-          </p>
-        )}
-
-        <Button type="submit" className="w-full" disabled={loading || !configured}>
-          {loading
-            ? "Please wait…"
-            : mode === "signin"
-              ? "Sign in"
-              : "Create account"}
-        </Button>
-
-        <button
-          type="button"
-          className="w-full text-center text-sm text-emerald-800"
-          onClick={() => {
-            setMode((m) => (m === "signin" ? "signup" : "signin"));
-            setFormError(null);
-            setMessage(null);
-          }}
+            Back to sign in
+          </button>
+        </form>
+      ) : (
+        <form
+          onSubmit={handleAuth}
+          noValidate
+          className="mt-10 space-y-4 rounded-3xl bg-white/90 p-5 shadow-sm ring-1 ring-stone-200/70"
         >
-          {mode === "signin"
-            ? "Need an account? Sign up"
-            : "Already have an account? Sign in"}
-        </button>
-      </form>
+          <h1 className="font-display text-xl font-semibold text-stone-900">
+            {mode === "signin" ? "Sign in" : "Create account"}
+          </h1>
+
+          {!configured && (
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              Supabase keys are missing or still placeholders. Update{" "}
+              <code>.env.local</code> and restart.
+            </p>
+          )}
+
+          {mode === "signup" && (
+            <Input
+              label="Display Name"
+              type="text"
+              autoComplete="name"
+              required
+              placeholder="Doreen"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              disabled={!configured || loading}
+            />
+          )}
+          <Input
+            label="Email"
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={!configured || loading}
+          />
+          <Input
+            label="Password"
+            type="password"
+            autoComplete={mode === "signin" ? "current-password" : "new-password"}
+            required
+            minLength={6}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            disabled={!configured || loading}
+          />
+          {mode === "signin" && (
+            <button
+              type="button"
+              className="-mt-2 block text-sm text-emerald-800"
+              onClick={() => {
+                setMode("reset");
+                setFormError(null);
+                setMessage(null);
+              }}
+            >
+              Forgot password?
+            </button>
+          )}
+
+          {error && (
+            <p
+              role="alert"
+              className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700"
+            >
+              {typeof error === "string" && error.trim() && error.trim() !== "{}"
+                ? error
+                : SIGNUP_FALLBACK}
+            </p>
+          )}
+          {message && (
+            <p className="rounded-xl bg-yellow-50 px-3 py-2 text-sm text-yellow-950 ring-1 ring-yellow-200/70">
+              {message}
+            </p>
+          )}
+
+          <Button type="submit" className="w-full" disabled={loading || !configured}>
+            {loading
+              ? "Please wait…"
+              : mode === "signin"
+                ? "Sign in"
+                : "Create account"}
+          </Button>
+
+          <button
+            type="button"
+            className="w-full text-center text-sm text-emerald-800"
+            onClick={() => {
+              setMode((m) => (m === "signin" ? "signup" : "signin"));
+              setFormError(null);
+              setMessage(null);
+            }}
+          >
+            {mode === "signin"
+              ? "Need an account? Sign up"
+              : "Already have an account? Sign in"}
+          </button>
+        </form>
+      )}
 
       <div className="mt-6 space-y-3">
         <Button variant="secondary" className="w-full" onClick={startDemo}>

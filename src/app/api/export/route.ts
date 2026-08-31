@@ -26,6 +26,7 @@ export async function GET() {
     scheduledMinistryEvents,
     areas,
     personPhotos,
+    studyNotes,
   ] = await Promise.all([
     supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
     supabase.from("user_settings").select("*").eq("user_id", user.id).maybeSingle(),
@@ -40,6 +41,7 @@ export async function GET() {
     supabase.from("scheduled_ministry_events").select("*").eq("user_id", user.id),
     supabase.from("areas").select("*").eq("user_id", user.id),
     supabase.from("person_photos").select("*").eq("user_id", user.id),
+    supabase.from("study_notes").select("*").eq("user_id", user.id),
   ]);
 
   // Tables that may not exist yet if a migration hasn't been run — degrade to
@@ -68,6 +70,7 @@ export async function GET() {
       // included here. See the in-app note on the Backup & Restore screen
       // for how photo media is handled separately.
       person_photos: orEmpty(personPhotos),
+      study_notes: orEmpty(studyNotes),
     },
     disclaimer:
       "MyWitness is an independent personal organization tool designed to help individuals organize ministry notes, conversations, and return visits. It is not affiliated with, endorsed by, or produced by Jehovah’s Witnesses or any of their legal entities. This file contains only your ministry data — no passwords, authentication tokens, or API keys.",
