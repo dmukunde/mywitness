@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { FileText } from "lucide-react";
 import { useApp } from "@/lib/app-context";
-import { Card, PageHeader, SectionTitle } from "@/components/ui";
+import { Button, Card, PageHeader, SectionTitle } from "@/components/ui";
 import { ScriptureBadge, TopicBadge } from "@/components/badges";
 import { MinistryDaySessions } from "@/components/MinistryDaySessions";
 import {
@@ -107,6 +108,11 @@ export default function ActivityPage() {
         title="Activity"
         subtitle="Private reflection — for your eyes only"
       />
+
+      <Button className="w-full" onClick={() => router.push("/activity/report")}>
+        <FileText className="h-5 w-5" />
+        Monthly Report
+      </Button>
 
       <section>
         <SectionTitle title="Ministry time" />

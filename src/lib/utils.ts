@@ -1,4 +1,4 @@
-import { format, formatDistanceToNow, isToday, isTomorrow, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, differenceInMinutes } from "date-fns";
+import { format, formatDistanceToNow, isToday, isTomorrow, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, differenceInMinutes, subMonths } from "date-fns";
 import { twMerge } from "tailwind-merge";
 
 /**
@@ -118,6 +118,25 @@ export function monthRange() {
   return {
     start: format(startOfMonth(now), "yyyy-MM-dd"),
     end: format(endOfMonth(now), "yyyy-MM-dd"),
+  };
+}
+
+/** "yyyy-MM" for the calendar month containing `date` (defaults to today). */
+export function monthKeyFor(date: Date = new Date()): string {
+  return format(date, "yyyy-MM");
+}
+
+/** "yyyy-MM" for last calendar month — the default for month-end reporting. */
+export function previousMonthKey(): string {
+  return monthKeyFor(subMonths(new Date(), 1));
+}
+
+/** Inclusive yyyy-MM-dd start/end for an arbitrary "yyyy-MM" month key. */
+export function monthRangeFor(monthKey: string) {
+  const reference = parseISO(`${monthKey}-01`);
+  return {
+    start: format(startOfMonth(reference), "yyyy-MM-dd"),
+    end: format(endOfMonth(reference), "yyyy-MM-dd"),
   };
 }
 
