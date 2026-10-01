@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Copy, Share2 } from "lucide-react";
+import { Check, CheckSquare, Copy, Share2, Square } from "lucide-react";
 import { useApp } from "@/lib/app-context";
 import { Button, Card, PageHeader, SectionTitle } from "@/components/ui";
 import {
@@ -168,15 +168,29 @@ export default function MonthlyReportPage() {
       </section>
 
       <section className="space-y-3">
-        <label className="flex items-center gap-2.5 text-sm text-stone-700">
-          <input
-            type="checkbox"
-            checked={includeDailyBreakdown}
-            onChange={(e) => setIncludeDailyBreakdown(e.target.checked)}
-            className="h-4 w-4 rounded border-stone-300 text-emerald-700 focus:ring-emerald-600/30"
-          />
-          Include my daily activity breakdown when sharing
-        </label>
+        <Card
+          className={
+            includeDailyBreakdown ? "ring-amber-300 bg-amber-50/60" : undefined
+          }
+          onClick={() => setIncludeDailyBreakdown((v) => !v)}
+        >
+          <div className="flex items-center gap-3">
+            {includeDailyBreakdown ? (
+              <CheckSquare className="h-5 w-5 shrink-0 text-amber-600" />
+            ) : (
+              <Square className="h-5 w-5 shrink-0 text-stone-300" />
+            )}
+            <div>
+              <p className="font-medium text-stone-900">
+                Include my daily activity breakdown when sharing
+              </p>
+              <p className="text-xs text-stone-500">
+                Off by default — this is your personal record, not part of
+                the official report.
+              </p>
+            </div>
+          </div>
+        </Card>
 
         <Card className="bg-stone-50">
           <p className="whitespace-pre-wrap font-mono text-sm text-stone-700">
