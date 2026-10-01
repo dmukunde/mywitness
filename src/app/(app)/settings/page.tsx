@@ -488,11 +488,10 @@ export default function SettingsPage() {
             Review ministry time totals, frequent topics, and scriptures.
           </p>
           <Button
-            variant="secondary"
             className="w-full"
             onClick={() => router.push("/activity")}
           >
-            Open activity summary
+            Open Activity &amp; Monthly Report
           </Button>
         </Card>
       </section>
