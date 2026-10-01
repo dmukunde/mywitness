@@ -112,10 +112,10 @@ export function MinistryTimer({
         )}
         <Link
           href="/activity"
-          className="mt-1 inline-flex items-center gap-0.5 text-xs font-medium text-emerald-800"
+          className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-emerald-800"
         >
-          View activity history
-          <ChevronRight className="h-3.5 w-3.5" />
+          View activity history &amp; Monthly Report
+          <ChevronRight className="h-4 w-4" />
         </Link>
         <div className="mt-4 space-y-2">
           <Button
@@ -290,10 +290,10 @@ export function MinistryTimer({
       )}
       <Link
         href="/activity"
-        className="inline-flex items-center gap-0.5 text-xs font-medium text-emerald-800"
+        className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-800"
       >
         View activity history
-        <ChevronRight className="h-3.5 w-3.5" />
+        <ChevronRight className="h-4 w-4" />
       </Link>
       {isLong && (
         <p className="flex items-center gap-1.5 text-xs text-amber-700">
