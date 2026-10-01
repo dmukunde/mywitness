@@ -114,7 +114,7 @@ export function MinistryTimer({
           href="/activity"
           className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-emerald-800"
         >
-          View activity history &amp; Monthly Report
+          Activity &amp; Monthly Report
           <ChevronRight className="h-4 w-4" />
         </Link>
         <div className="mt-4 space-y-2">
@@ -292,7 +292,7 @@ export function MinistryTimer({
         href="/activity"
         className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-800"
       >
-        View activity history
+        Activity &amp; Monthly Report
         <ChevronRight className="h-4 w-4" />
       </Link>
       {isLong && (
