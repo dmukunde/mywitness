@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button, Input, Textarea } from "@/components/ui";
 import { formatDuration, todayISO } from "@/lib/utils";
+import { formatDbError } from "@/lib/db-errors";
 import { format, parseISO } from "date-fns";
 
 export type MinistryTimeSaveInput = {
@@ -63,8 +64,8 @@ export function MinistryTimeEditor({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-900/40 p-4 sm:items-center">
-      <div className="w-full max-w-md rounded-3xl bg-white p-5 shadow-xl animate-fade-up">
+    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-stone-900/40 p-4 sm:items-center">
+      <div className="max-h-full w-full max-w-md overflow-y-auto rounded-3xl bg-white p-5 shadow-xl animate-fade-up">
         <h2 className="font-display text-xl font-semibold text-stone-900">
           Add ministry time
         </h2>
@@ -142,9 +143,7 @@ export function MinistryTimeEditor({
                 onClose();
               } catch (err) {
                 setError(
-                  err instanceof Error
-                    ? err.message
-                    : "Could not save ministry time."
+                  formatDbError("save ministry time", err, "Could not save ministry time.")
                 );
               } finally {
                 setSaving(false);
