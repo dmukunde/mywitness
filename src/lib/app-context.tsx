@@ -44,10 +44,18 @@ import {
   saveBibleStudyRemote,
   saveStudySessionDemo,
   saveStudySessionRemote,
+  setReturnVisitStatusDemo,
+  setReturnVisitStatusRemote,
   syncReturnVisitEventDemo,
   upsertReturnVisitEventSupabase,
 } from "@/lib/ministry-api";
 import { findDuplicateMinistryEvent } from "@/lib/ministry-scheduling";
+import {
+  buildActivities,
+  returnVisitsToComplete,
+  returnVisitsToSupersede,
+  type ScheduledActivity,
+} from "@/lib/schedule";
 import { addMinutes, format, parseISO } from "date-fns";
 
 const DISPLAY_NAME_KEY = "mywitness-display-name";
@@ -66,6 +74,12 @@ interface AppContextValue {
   bibleStudies: BibleStudy[];
   studySessions: BibleStudySession[];
   ministryEvents: ScheduledMinistryEvent[];
+  /**
+   * Every scheduled return visit / Bible study with its derived lifecycle
+   * state (upcoming, due, overdue, completed). The one place screens should
+   * read "what's scheduled" from — see lib/schedule.ts.
+   */
+  activities: ScheduledActivity[];
   areas: Area[];
   personPhotos: PersonPhoto[];
   studyNotes: StudyNote[];
@@ -1445,6 +1459,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
       const now = new Date().toISOString();
+      // Scheduling the next visit replaces an older one that was missed —
+      // otherwise the person keeps showing the old overdue date. Future
+      // visits are left alone (they may be intentional), and the replaced
+      // visit stays in history as "rescheduled".
+      const today = todayISO();
+      const supersedeIds =
+        visit.status === "planned" && visit.scheduled_date >= today
+          ? returnVisitsToSupersede(returnVisits, visit.person_id, today).map(
+              (rv) => rv.id
+            )
+          : [];
       if (demoMode) {
         const data = loadDemoData();
         const created: ReturnVisit = {
@@ -1455,6 +1480,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           created_at: now,
           updated_at: now,
         };
+        if (supersedeIds.length) {
+          setReturnVisitStatusDemo(data, supersedeIds, "rescheduled");
+        }
         data.returnVisits = [created, ...data.returnVisits];
         syncReturnVisitEventDemo(data, created);
         saveDemoData(data);
@@ -1468,6 +1496,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .select()
         .single();
       if (error) throw error;
+      await setReturnVisitStatusRemote(user!.id, supersedeIds, "rescheduled");
       const created = data as ReturnVisit;
       try {
         await upsertReturnVisitEventSupabase(user!.id, created);
@@ -1477,7 +1506,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await refresh();
       return created;
     },
-    [applyDemo, demoMode, ministryEvents, refresh, user]
+    [applyDemo, demoMode, ministryEvents, refresh, returnVisits, user]
   );
 
   const updateReturnVisit = useCallback(
@@ -1764,6 +1793,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
           });
         }
 
+        // Visiting someone resolves the return visits that were due or
+        // overdue for them — before scheduling the next one.
+        const resolveIds = returnVisitsToComplete(
+          data.returnVisits,
+          person.id,
+          conversation.conversation_date
+        ).map((rv) => rv.id);
+        if (resolveIds.length) {
+          setReturnVisitStatusDemo(data, resolveIds, "completed");
+        }
+
         let returnVisit: ReturnVisit | undefined;
         if (form.schedule_return_visit && form.promised_follow_up_date) {
           returnVisit = {
@@ -1856,6 +1896,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (scriptureError) throw scriptureError;
       }
 
+      // Visiting someone resolves the return visits that were due or overdue
+      // for them — before scheduling the next one.
+      await setReturnVisitStatusRemote(
+        user!.id,
+        returnVisitsToComplete(
+          returnVisits,
+          person.id,
+          (conversation as Conversation).conversation_date
+        ).map((rv) => rv.id),
+        "completed"
+      );
+
       // Schedule return visit when the form requests it
       let returnVisit: ReturnVisit | undefined;
       if (form.schedule_return_visit && form.promised_follow_up_date) {
@@ -1890,7 +1942,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         returnVisit,
       };
     },
-    [applyDemo, createReturnVisit, demoMode, refresh, savePerson, user]
+    [applyDemo, createReturnVisit, demoMode, refresh, returnVisits, savePerson, user]
   );
 
   const dismissReminder = useCallback(
@@ -1946,6 +1998,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, [demoMode, disableDemoMode]);
 
+  const today = todayISO();
+  const activities = useMemo(
+    () =>
+      buildActivities({
+        events: ministryEvents,
+        returnVisits,
+        bibleStudies,
+        conversations,
+        studySessions,
+        today,
+      }),
+    [ministryEvents, returnVisits, bibleStudies, conversations, studySessions, today]
+  );
+
   const value: AppContextValue = {
     user,
     loading,
@@ -1969,6 +2035,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     bibleStudies,
     studySessions,
     ministryEvents,
+    activities,
     areas,
     personPhotos,
     studyNotes,

@@ -7,13 +7,12 @@ import { useApp } from "@/lib/app-context";
 import { Card, EmptyState, PageHeader, Select, SectionTitle } from "@/components/ui";
 import { InterestBadge } from "@/components/InterestBadge";
 import { StatusBadge, SuccessBanner, TopicBadge } from "@/components/badges";
-import { formatDisplayDate, todayISO } from "@/lib/utils";
-import { isBefore, parseISO } from "date-fns";
+import { formatDisplayDate } from "@/lib/utils";
 import type { InterestLevel, Person, ReturnVisit } from "@/lib/types";
 import type { VisitBadgeKind } from "@/components/badges";
 
 function ReturnVisitsInner() {
-  const { returnVisits, people, areas } = useApp();
+  const { returnVisits, people, areas, activities } = useApp();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [dismissedBanner, setDismissedBanner] = useState(false);
@@ -21,7 +20,6 @@ function ReturnVisitsInner() {
     !dismissedBanner && searchParams.get("deleted") === "1"
       ? "Return visit deleted."
       : null;
-  const today = todayISO();
   const [areaFilter, setAreaFilter] = useState("all");
 
   const personFor = (rv: ReturnVisit): Person | undefined =>
@@ -30,17 +28,22 @@ function ReturnVisitsInner() {
   const sections = useMemo(() => {
     const inArea = (rv: ReturnVisit) =>
       areaFilter === "all" || personFor(rv)?.area_id === areaFilter;
-    const scoped = returnVisits.filter(inArea);
-    const planned = scoped.filter((rv) => rv.status === "planned");
-    const todayList = planned.filter((rv) => rv.scheduled_date === today);
-    const upcoming = planned.filter((rv) => rv.scheduled_date > today);
-    const overdue = planned.filter((rv) =>
-      isBefore(parseISO(rv.scheduled_date), parseISO(today))
-    );
-    const completed = scoped.filter((rv) => rv.status === "completed");
-    return { todayList, upcoming, overdue, completed };
+    // Sections come from the shared activity states (lib/schedule.ts), so a
+    // visit that's been followed up never lingers under "Overdue".
+    const rvById = new Map(returnVisits.map((rv) => [rv.id, rv]));
+    const pick = (state: "due" | "upcoming" | "overdue" | "completed") =>
+      activities
+        .filter((a) => a.event_type === "return_visit" && a.state === state)
+        .map((a) => rvById.get(a.return_visit_id!))
+        .filter((rv): rv is ReturnVisit => !!rv && inArea(rv));
+    return {
+      todayList: pick("due"),
+      upcoming: pick("upcoming"),
+      overdue: pick("overdue"),
+      completed: pick("completed"),
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [returnVisits, today, areaFilter, people]);
+  }, [activities, returnVisits, areaFilter, people]);
 
   const nameFor = (rv: ReturnVisit) => personFor(rv)?.name || "Person";
 

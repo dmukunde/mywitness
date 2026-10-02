@@ -43,87 +43,10 @@ type Filter = "all" | "return_visit" | "bible_study";
 type ViewMode = "month" | "agenda";
 type ScheduleStep = null | "choose" | "form";
 
-function mergeCalendarEvents(
-  ministryEvents: ScheduledMinistryEvent[],
-  returnVisits: ReturnType<typeof useApp>["returnVisits"],
-  bibleStudies: ReturnType<typeof useApp>["bibleStudies"]
-): ScheduledMinistryEvent[] {
-  const byKey = new Map<string, ScheduledMinistryEvent>();
-
-  for (const e of ministryEvents) {
-    if (e.status === "cancelled") continue;
-    const key = e.return_visit_id
-      ? `rv:${e.return_visit_id}`
-      : e.bible_study_id
-        ? `bs:${e.bible_study_id}:${e.scheduled_date}`
-        : e.id;
-    byKey.set(key, e);
-  }
-
-  for (const rv of returnVisits) {
-    if (rv.status === "cancelled") continue;
-    const key = `rv:${rv.id}`;
-    if (byKey.has(key)) continue;
-    byKey.set(key, {
-      id: `rv-${rv.id}`,
-      user_id: rv.user_id,
-      person_id: rv.person_id,
-      event_type: "return_visit",
-      return_visit_id: rv.id,
-      bible_study_id: null,
-      scheduled_date: rv.scheduled_date,
-      scheduled_time: rv.scheduled_time,
-      general_location: rv.general_location,
-      topic_or_lesson: rv.next_planned_topic || rv.last_topic,
-      preparation_notes: rv.preparation_notes,
-      status: rv.status,
-      is_demo: rv.is_demo,
-      created_at: rv.created_at,
-      updated_at: rv.updated_at,
-    });
-  }
-
-  for (const s of bibleStudies) {
-    if (!s.next_study_date) continue;
-    if (s.status !== "active") continue;
-    const key = `bs:${s.id}:${s.next_study_date}`;
-    if (byKey.has(key)) continue;
-    // Prefer an existing planned event for this study regardless of date key
-    const existingPlanned = [...byKey.values()].find(
-      (e) => e.bible_study_id === s.id && e.status === "planned"
-    );
-    if (existingPlanned) continue;
-    byKey.set(key, {
-      id: `bs-${s.id}`,
-      user_id: s.user_id,
-      person_id: s.person_id,
-      event_type: "bible_study",
-      return_visit_id: null,
-      bible_study_id: s.id,
-      scheduled_date: s.next_study_date,
-      scheduled_time: s.next_study_time,
-      general_location: s.general_location,
-      topic_or_lesson: s.current_lesson,
-      preparation_notes: s.preparation_notes,
-      status: "planned",
-      is_demo: s.is_demo,
-      created_at: s.created_at,
-      updated_at: s.updated_at,
-    });
-  }
-
-  return [...byKey.values()].sort((a, b) => {
-    const d = a.scheduled_date.localeCompare(b.scheduled_date);
-    if (d !== 0) return d;
-    return (a.scheduled_time || "").localeCompare(b.scheduled_time || "");
-  });
-}
-
 function CalendarInner() {
   const {
-    ministryEvents,
+    activities,
     people,
-    returnVisits,
     bibleStudies,
     sessions,
     createReturnVisit,
@@ -165,12 +88,14 @@ function CalendarInner() {
   const [dupConfirm, setDupConfirm] = useState(false);
 
   const events = useMemo(() => {
-    let list = mergeCalendarEvents(ministryEvents, returnVisits, bibleStudies);
+    // Shared with People/Home/Bible Studies (lib/schedule.ts) — one
+    // reconciled list instead of merging three sources here.
+    let list: ScheduledMinistryEvent[] = activities;
     if (filter !== "all") {
       list = list.filter((e) => e.event_type === filter);
     }
     return list;
-  }, [bibleStudies, filter, ministryEvents, returnVisits]);
+  }, [activities, filter]);
 
   const monthDays = useMemo(() => {
     const start = startOfWeek(startOfMonth(cursor), { weekStartsOn: 0 });

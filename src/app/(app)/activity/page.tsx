@@ -22,11 +22,11 @@ import {
   sessionsOnDate,
   yearRangeFor,
 } from "@/lib/ministry-time";
-import { isBefore, parseISO, format } from "date-fns";
+import { parseISO, format } from "date-fns";
 
 export default function ActivityPage() {
   const router = useRouter();
-  const { sessions, conversations, returnVisits, people, settings } = useApp();
+  const { sessions, conversations, returnVisits, activities, people, settings } = useApp();
   const today = todayISO();
   const week = weekRange();
   const month = monthRange();
@@ -50,10 +50,8 @@ export default function ActivityPage() {
       (rv) => rv.status === "completed"
     ).length;
 
-    const overdue = returnVisits.filter(
-      (rv) =>
-        rv.status === "planned" &&
-        isBefore(parseISO(rv.scheduled_date), parseISO(today))
+    const overdue = activities.filter(
+      (a) => a.event_type === "return_visit" && a.state === "overdue"
     ).length;
 
     const firstMetThisMonth = people.filter(
@@ -88,7 +86,7 @@ export default function ActivityPage() {
       topTopics: topicCounts.slice(0, 5),
       topScriptures: scriptureCounts.slice(0, 5),
     };
-  }, [sessions, conversations, returnVisits, people, today, week, month, year]);
+  }, [sessions, conversations, returnVisits, activities, people, today, week, month, year]);
 
   const recentDays = useMemo(() => {
     const byDate = groupMinutesByDate(sessions);

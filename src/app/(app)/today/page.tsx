@@ -23,6 +23,7 @@ import {
   monthRange,
 } from "@/lib/utils";
 import { sumMinutesForRange, sumAllMinutes, sessionsOnDate } from "@/lib/ministry-time";
+import type { BibleStudy, ReturnVisit } from "@/lib/types";
 
 function TodayInner() {
   const router = useRouter();
@@ -32,6 +33,7 @@ function TodayInner() {
     conversations,
     returnVisits,
     bibleStudies,
+    activities,
     sessions,
     reminders,
     dismissReminder,
@@ -47,46 +49,31 @@ function TodayInner() {
       ? "Conversation saved. Your return visit is on the dashboard."
       : null;
 
-  const dueToday = useMemo(
-    () =>
-      returnVisits.filter(
-        (rv) => rv.status === "planned" && rv.scheduled_date === today
-      ),
-    [returnVisits, today]
-  );
+  // Everything scheduled comes from the same derived activity list that
+  // People, Calendar and Bible Studies use, so Home can't disagree with them.
+  const { visitsFor, studiesFor } = useMemo(() => {
+    const rvById = new Map(returnVisits.map((rv) => [rv.id, rv]));
+    const studyById = new Map(bibleStudies.map((s) => [s.id, s]));
+    return {
+      visitsFor: (state: "due" | "overdue" | "upcoming") =>
+        activities
+          .filter((a) => a.event_type === "return_visit" && a.state === state)
+          .map((a) => rvById.get(a.return_visit_id!))
+          .filter((rv): rv is ReturnVisit => !!rv),
+      studiesFor: (state: "due" | "overdue" | "upcoming") =>
+        activities
+          .filter((a) => a.event_type === "bible_study" && a.state === state)
+          .map((a) => studyById.get(a.bible_study_id!))
+          .filter((s): s is BibleStudy => !!s),
+    };
+  }, [activities, returnVisits, bibleStudies]);
 
-  const studiesDueToday = useMemo(
-    () =>
-      bibleStudies.filter(
-        (s) =>
-          s.status === "active" && s.next_study_date === today
-      ),
-    [bibleStudies, today]
-  );
-
-  const nextReturnVisit = useMemo(
-    () =>
-      returnVisits
-        .filter((rv) => rv.status === "planned" && rv.scheduled_date > today)
-        .sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date))[0] ||
-      null,
-    [returnVisits, today]
-  );
-
-  const nextBibleStudy = useMemo(
-    () =>
-      bibleStudies
-        .filter(
-          (s) =>
-            s.status === "active" &&
-            s.next_study_date &&
-            s.next_study_date > today
-        )
-        .sort((a, b) =>
-          (a.next_study_date || "").localeCompare(b.next_study_date || "")
-        )[0] || null,
-    [bibleStudies, today]
-  );
+  const overdueVisits = visitsFor("overdue");
+  const overdueStudies = studiesFor("overdue");
+  const dueToday = visitsFor("due");
+  const studiesDueToday = studiesFor("due");
+  const nextReturnVisit = visitsFor("upcoming")[0] || null;
+  const nextBibleStudy = studiesFor("upcoming")[0] || null;
 
   const todaysConversations = useMemo(
     () => conversations.filter((c) => c.conversation_date === today),
@@ -241,13 +228,21 @@ function TodayInner() {
       )}
 
       <section className="space-y-2">
-        {dueToday.length === 0 && studiesDueToday.length === 0 ? (
+        {dueToday.length === 0 &&
+        studiesDueToday.length === 0 &&
+        overdueVisits.length === 0 &&
+        overdueStudies.length === 0 ? (
           <EmptyState title="Nothing due today" />
         ) : (
           <>
-            {dueToday.map((rv) => (
+            {[
+              ...overdueVisits.map((rv) => ({ rv, overdue: true })),
+              ...dueToday.map((rv) => ({ rv, overdue: false })),
+            ].map(({ rv, overdue }) => (
               <Link key={rv.id} href={`/return-visits/${rv.id}`}>
-                <Card className="mb-2 ring-violet-100/80">
+                <Card
+                  className={`mb-2 ${overdue ? "ring-rose-200" : "ring-violet-100/80"}`}
+                >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="font-medium text-stone-900">
@@ -256,7 +251,9 @@ function TodayInner() {
                           "Person"}
                       </p>
                       <p className="mt-1 text-sm text-stone-500">
-                        {rv.scheduled_time || "Anytime"}
+                        {overdue
+                          ? `${formatDisplayDate(rv.scheduled_date)}${rv.scheduled_time ? ` · ${rv.scheduled_time}` : ""}`
+                          : rv.scheduled_time || "Anytime"}
                       </p>
                       {rv.last_topic && (
                         <p className="mt-2 text-xs text-stone-500">
@@ -269,25 +266,32 @@ function TodayInner() {
                         </div>
                       )}
                     </div>
-                    <StatusBadge kind="return_visit" />
+                    <StatusBadge kind={overdue ? "overdue" : "return_visit"} />
                   </div>
                 </Card>
               </Link>
             ))}
-            {studiesDueToday.map((study) => {
+            {[
+              ...overdueStudies.map((study) => ({ study, overdue: true })),
+              ...studiesDueToday.map((study) => ({ study, overdue: false })),
+            ].map(({ study, overdue }) => {
               const student =
                 study.person ||
                 people.find((p) => p.id === study.person_id);
               return (
                 <Link key={study.id} href={`/bible-studies/${study.id}`}>
-                  <Card className="mb-2 ring-amber-100/90">
+                  <Card
+                    className={`mb-2 ${overdue ? "ring-rose-200" : "ring-amber-100/90"}`}
+                  >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="font-medium text-stone-900">
                           {student?.name || "Student"}
                         </p>
                         <p className="mt-1 text-sm text-stone-500">
-                          {study.next_study_time || "Anytime"}
+                          {overdue && study.next_study_date
+                            ? `${formatDisplayDate(study.next_study_date)}${study.next_study_time ? ` · ${study.next_study_time}` : ""}`
+                            : study.next_study_time || "Anytime"}
                         </p>
                         {study.current_lesson && (
                           <div className="mt-2">
@@ -303,7 +307,7 @@ function TodayInner() {
                           </p>
                         )}
                       </div>
-                      <StatusBadge kind="bible_study" />
+                      <StatusBadge kind={overdue ? "overdue" : "bible_study"} />
                     </div>
                   </Card>
                 </Link>

@@ -21,11 +21,10 @@ import {
 import { WhatsAppButton } from "@/components/WhatsAppButton";
 import { PersonPhotoGallery } from "@/components/PersonPhotoGallery";
 import {
-  isStudyOverdue,
   studyProgressLabel,
   studyProgressPercent,
 } from "@/lib/bible-study";
-import { formatDisplayDate, parseScriptures, todayISO } from "@/lib/utils";
+import { formatDisplayDate, parseScriptures } from "@/lib/utils";
 
 export default function BibleStudyProfilePage() {
   const params = useParams<{ id: string }>();
@@ -33,6 +32,7 @@ export default function BibleStudyProfilePage() {
   const {
     bibleStudies,
     studySessions,
+    activities,
     people,
     updateBibleStudyStatus,
     saveBibleStudy,
@@ -73,7 +73,12 @@ export default function BibleStudyProfilePage() {
   }
 
   const pct = studyProgressPercent(study);
-  const overdue = isStudyOverdue(study, todayISO());
+  const overdue = activities.some(
+    (a) =>
+      a.event_type === "bible_study" &&
+      a.bible_study_id === study.id &&
+      a.state === "overdue"
+  );
   const statusKind =
     study.status === "active"
       ? "study_active"
@@ -237,7 +242,7 @@ export default function BibleStudyProfilePage() {
             className="w-full text-emerald-800"
             onClick={() => void updateBibleStudyStatus(study.id, "completed")}
           >
-            Mark study completed
+            Finish this study
           </Button>
         )}
         {person && (

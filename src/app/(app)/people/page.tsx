@@ -13,19 +13,18 @@ import {
 } from "@/components/ui";
 import { InterestBadge, INTEREST_LEVEL_ORDER } from "@/components/InterestBadge";
 import { StatusBadge, TopicBadge } from "@/components/badges";
-import { formatDisplayDate, todayISO } from "@/lib/utils";
+import { formatDisplayDate } from "@/lib/utils";
 import { INTEREST_LABELS, type Person } from "@/lib/types";
-import { isBefore, parseISO } from "date-fns";
+import { nextActivityForPerson } from "@/lib/schedule";
 
 type SortKey = "recent" | "upcoming" | "overdue" | "name";
 
 export default function PeoplePage() {
-  const { people, conversations, returnVisits, areas } = useApp();
+  const { people, conversations, activities, areas } = useApp();
   const [query, setQuery] = useState("");
   const [interestFilter, setInterestFilter] = useState("all");
   const [areaFilter, setAreaFilter] = useState("all");
   const [sort, setSort] = useState<SortKey>("recent");
-  const today = todayISO();
 
   const enriched = useMemo(() => {
     return people.map((person) => {
@@ -33,12 +32,10 @@ export default function PeoplePage() {
         .filter((c) => c.person_id === person.id)
         .sort((a, b) => b.conversation_date.localeCompare(a.conversation_date));
       const latest = personConvs[0];
-      const nextVisit = returnVisits
-        .filter((rv) => rv.person_id === person.id && rv.status === "planned")
-        .sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date))[0];
-      const overdue =
-        !!nextVisit &&
-        isBefore(parseISO(nextVisit.scheduled_date), parseISO(today));
+      // Earliest *unresolved* scheduled visit or Bible study — a visit that
+      // has since been followed up can no longer keep the person Overdue.
+      const nextVisit = nextActivityForPerson(activities, person.id);
+      const overdue = nextVisit?.state === "overdue";
 
       const haystack = [
         person.name,
@@ -58,7 +55,7 @@ export default function PeoplePage() {
 
       return { person, latest, nextVisit, overdue, haystack };
     });
-  }, [people, conversations, returnVisits, today]);
+  }, [people, conversations, activities]);
 
   const filtered = useMemo(() => {
     let list = enriched;

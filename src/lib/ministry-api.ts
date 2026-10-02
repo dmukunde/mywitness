@@ -54,17 +54,15 @@ export function syncBibleStudyEventDemo(
     (e) => e.bible_study_id === study.id && e.status === "planned"
   );
 
-  // Clear next date, paused, or completed → cancel/remove future planned event
+  // No next date, paused, or finished → the future appointment no longer
+  // exists. (Appointments that were actually held are completed explicitly
+  // when the session is recorded — see completeStudyEventsDemo.)
   if (!study.next_study_date || study.status !== "active") {
-    if (existing) {
-      const nextStatus =
-        study.status === "completed" ? ("completed" as const) : ("cancelled" as const);
-      data.ministryEvents = data.ministryEvents.map((e) =>
-        e.id === existing.id
-          ? { ...e, status: nextStatus, updated_at: now }
-          : e
-      );
-    }
+    data.ministryEvents = data.ministryEvents.map((e) =>
+      e.bible_study_id === study.id && e.status === "planned"
+        ? { ...e, status: "cancelled" as const, updated_at: now }
+        : e
+    );
     return data;
   }
 
@@ -132,20 +130,31 @@ export async function upsertBibleStudyEventSupabase(
   study: BibleStudy
 ) {
   const supabase = createClient();
-  const { data: existing } = await supabase
+  // More than one planned event for a study used to make a single-row lookup
+  // fail silently, leaving the calendar stale — take the first, drop extras.
+  const { data: plannedRows } = await supabase
     .from("scheduled_ministry_events")
     .select("id")
     .eq("bible_study_id", study.id)
     .eq("status", "planned")
-    .maybeSingle();
+    .order("created_at", { ascending: true });
+  const existing = plannedRows?.[0];
+  const extraIds = (plannedRows ?? []).slice(1).map((r) => r.id);
+  if (extraIds.length) {
+    await supabase
+      .from("scheduled_ministry_events")
+      .update({ status: "cancelled" })
+      .in("id", extraIds);
+  }
 
+  // No next date, paused, or finished → the future appointment no longer
+  // exists. Appointments that were actually held are completed explicitly
+  // when the session is recorded (completeStudyEventsSupabase).
   if (!study.next_study_date || study.status !== "active") {
     if (existing?.id) {
       await supabase
         .from("scheduled_ministry_events")
-        .update({
-          status: study.status === "completed" ? "completed" : "cancelled",
-        })
+        .update({ status: "cancelled" })
         .eq("id", existing.id);
     }
     return;
@@ -172,6 +181,92 @@ export async function upsertBibleStudyEventSupabase(
       .eq("id", existing.id);
   } else {
     await supabase.from("scheduled_ministry_events").insert(payload);
+  }
+}
+
+/** Marks a study's planned appointments on/before `throughDate` as held. */
+export function completeStudyEventsDemo(
+  data: DemoData,
+  studyId: string,
+  throughDate: string
+): DemoData {
+  const now = new Date().toISOString();
+  data.ministryEvents = data.ministryEvents.map((e) =>
+    e.bible_study_id === studyId &&
+    e.status === "planned" &&
+    e.scheduled_date <= throughDate
+      ? { ...e, status: "completed" as const, updated_at: now }
+      : e
+  );
+  return data;
+}
+
+export async function completeStudyEventsSupabase(
+  studyId: string,
+  throughDate: string
+) {
+  const supabase = createClient();
+  await supabase
+    .from("scheduled_ministry_events")
+    .update({ status: "completed" })
+    .eq("bible_study_id", studyId)
+    .eq("status", "planned")
+    .lte("scheduled_date", throughDate);
+}
+
+/** Sets the status of several return visits (e.g. completed / rescheduled) and mirrors it to the calendar. */
+export function setReturnVisitStatusDemo(
+  data: DemoData,
+  ids: string[],
+  status: "completed" | "rescheduled"
+): DemoData {
+  const now = new Date().toISOString();
+  // Only still-planned visits change — never re-resolve one that's already
+  // completed/cancelled (e.g. completed a moment ago, then "superseded").
+  const changing = data.returnVisits
+    .filter((rv) => ids.includes(rv.id) && rv.status === "planned")
+    .map((rv) => rv.id);
+  data.returnVisits = data.returnVisits.map((rv) =>
+    changing.includes(rv.id)
+      ? {
+          ...rv,
+          status,
+          completed_at: status === "completed" ? now : rv.completed_at,
+          updated_at: now,
+        }
+      : rv
+  );
+  for (const rv of data.returnVisits.filter((r) => changing.includes(r.id))) {
+    syncReturnVisitEventDemo(data, rv);
+  }
+  // A resolved visit's seeded "overdue" reminder card is no longer true.
+  data.reminders = data.reminders.map((r) =>
+    r.return_visit_id && changing.includes(r.return_visit_id) && !r.dismissed_at
+      ? { ...r, dismissed_at: now }
+      : r
+  );
+  return data;
+}
+
+export async function setReturnVisitStatusRemote(
+  userId: string,
+  ids: string[],
+  status: "completed" | "rescheduled"
+) {
+  if (!ids.length) return;
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("return_visits")
+    .update({
+      status,
+      ...(status === "completed" ? { completed_at: new Date().toISOString() } : {}),
+    })
+    .in("id", ids)
+    .eq("status", "planned")
+    .select();
+  if (error) throw error;
+  for (const rv of (data ?? []) as ReturnVisit[]) {
+    await safeSync(() => upsertReturnVisitEventSupabase(userId, rv));
   }
 }
 
@@ -268,6 +363,28 @@ export function saveBibleStudyDemo(
   return study;
 }
 
+/**
+ * The study's next appointment after a session is recorded: the date the
+ * user entered, or a still-future date already on the study, or none —
+ * never the old date that has just been held (that used to leave a held
+ * study showing Overdue forever).
+ */
+function nextStudySchedule(
+  study: BibleStudy,
+  form: { next_scheduled_date: string; next_scheduled_time: string },
+  sessionDate: string
+): { date: string | null; time: string | null } {
+  const date =
+    emptyToNull(form.next_scheduled_date) ??
+    (study.next_study_date && study.next_study_date > sessionDate
+      ? study.next_study_date
+      : null);
+  const time = date
+    ? emptyToNull(form.next_scheduled_time) ?? study.next_study_time
+    : null;
+  return { date, time };
+}
+
 export function saveStudySessionDemo(
   form: BibleStudySessionFormData
 ): { session: BibleStudySession; study: BibleStudy } {
@@ -304,6 +421,10 @@ export function saveStudySessionDemo(
 
   data.studySessions = [session, ...data.studySessions];
 
+  // Holding the study resolves the appointment that was due.
+  completeStudyEventsDemo(data, study.id, session.session_date);
+  const next = nextStudySchedule(study, form, session.session_date);
+
   const endNum =
     parseLessonNumber(form.end_lesson || form.next_lesson || "") ||
     study.current_lesson_number;
@@ -312,8 +433,8 @@ export function saveStudySessionDemo(
     current_lesson: form.next_lesson || form.end_lesson || study.current_lesson,
     current_lesson_number: endNum,
     last_study_date: session.session_date,
-    next_study_date: form.next_scheduled_date || study.next_study_date,
-    next_study_time: form.next_scheduled_time || study.next_study_time,
+    next_study_date: next.date,
+    next_study_time: next.time,
     preparation_notes: form.preparation_notes || study.preparation_notes,
     updated_at: now,
   };
@@ -450,6 +571,11 @@ export async function saveStudySessionRemote(
     .single();
   if (error) throw error;
 
+  const sessionDate = form.session_date || todayISO();
+  // Holding the study resolves the appointment that was due.
+  await safeSync(() => completeStudyEventsSupabase(study.id, sessionDate));
+  const next = nextStudySchedule(study, form, sessionDate);
+
   const endNum =
     parseLessonNumber(form.end_lesson || form.next_lesson || "") ||
     study.current_lesson_number;
@@ -459,9 +585,9 @@ export async function saveStudySessionRemote(
     .update({
       current_lesson: form.next_lesson || form.end_lesson || study.current_lesson,
       current_lesson_number: endNum,
-      last_study_date: form.session_date || todayISO(),
-      next_study_date: emptyToNull(form.next_scheduled_date) || study.next_study_date,
-      next_study_time: emptyToNull(form.next_scheduled_time) || study.next_study_time,
+      last_study_date: sessionDate,
+      next_study_date: next.date,
+      next_study_time: next.time,
       preparation_notes:
         emptyToNull(form.preparation_notes) || study.preparation_notes,
     })

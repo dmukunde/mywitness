@@ -28,6 +28,7 @@ import {
 import { formatDisplayDate } from "@/lib/utils";
 import { INTEREST_LABELS, type InterestLevel } from "@/lib/types";
 import { formatDbError } from "@/lib/db-errors";
+import { nextActivityForPerson } from "@/lib/schedule";
 
 export default function PersonProfilePage() {
   const params = useParams<{ id: string }>();
@@ -35,7 +36,7 @@ export default function PersonProfilePage() {
   const {
     people,
     conversations,
-    returnVisits,
+    activities,
     bibleStudies,
     areas,
     archivePerson,
@@ -59,9 +60,7 @@ export default function PersonProfilePage() {
     [conversations, params.id]
   );
 
-  const nextVisit = returnVisits
-    .filter((rv) => rv.person_id === params.id && rv.status === "planned")
-    .sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date))[0];
+  const nextVisit = nextActivityForPerson(activities, params.id);
 
   const [form, setForm] = useState({
     name: "",
@@ -331,11 +330,24 @@ export default function PersonProfilePage() {
         <Row label="Key questions" value={person.key_questions} />
         {nextVisit ? (
           <Link
-            href={`/return-visits/${nextVisit.id}`}
+            href={
+              nextVisit.event_type === "bible_study"
+                ? `/bible-studies/${nextVisit.bible_study_id}`
+                : `/return-visits/${nextVisit.return_visit_id}`
+            }
             className="flex justify-between gap-3"
           >
-            <span className="text-stone-400">Next visit</span>
-            <span className="text-right text-emerald-800 underline decoration-emerald-200 underline-offset-2">
+            <span className="text-stone-400">
+              {nextVisit.event_type === "bible_study" ? "Next Bible study" : "Next visit"}
+            </span>
+            <span
+              className={
+                nextVisit.state === "overdue"
+                  ? "text-right text-rose-700 underline decoration-rose-200 underline-offset-2"
+                  : "text-right text-emerald-800 underline decoration-emerald-200 underline-offset-2"
+              }
+            >
+              {nextVisit.state === "overdue" ? "Overdue · " : ""}
               {formatDisplayDate(nextVisit.scheduled_date)}
               {nextVisit.scheduled_time ? ` · ${nextVisit.scheduled_time}` : ""}
             </span>

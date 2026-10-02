@@ -14,18 +14,17 @@ import {
 } from "@/components/ui";
 import { StatusBadge, SuccessBanner } from "@/components/badges";
 import {
-  isStudyOverdue,
   studyProgressLabel,
   studyProgressPercent,
 } from "@/lib/bible-study";
-import { formatDisplayDate, todayISO } from "@/lib/utils";
+import { formatDisplayDate } from "@/lib/utils";
 import type { BibleStudy, BibleStudyStatus } from "@/lib/types";
 
 type SortKey = "next" | "recent" | "name" | "progress";
 type FilterKey = "all" | BibleStudyStatus | "overdue";
 
 function BibleStudiesInner() {
-  const { bibleStudies, people, areas } = useApp();
+  const { bibleStudies, people, areas, activities } = useApp();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [dismissedBanner, setDismissedBanner] = useState(false);
@@ -33,7 +32,17 @@ function BibleStudiesInner() {
     !dismissedBanner && searchParams.get("deleted") === "1"
       ? "Bible study deleted."
       : null;
-  const today = todayISO();
+  // Overdue comes from the shared schedule (lib/schedule.ts): a study whose
+  // appointment was held no longer counts, even if its date was never edited.
+  const overdueIds = useMemo(
+    () =>
+      new Set(
+        activities
+          .filter((a) => a.event_type === "bible_study" && a.state === "overdue")
+          .map((a) => a.bible_study_id!)
+      ),
+    [activities]
+  );
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [areaFilter, setAreaFilter] = useState("all");
@@ -52,9 +61,9 @@ function BibleStudiesInner() {
       active: bibleStudies.filter((s) => s.status === "active").length,
       paused: bibleStudies.filter((s) => s.status === "paused").length,
       completed: bibleStudies.filter((s) => s.status === "completed").length,
-      overdue: bibleStudies.filter((s) => isStudyOverdue(s, today)).length,
+      overdue: bibleStudies.filter((s) => overdueIds.has(s.id)).length,
     };
-  }, [bibleStudies, today]);
+  }, [bibleStudies, overdueIds]);
 
   const filtered = useMemo(() => {
     let list = enriched;
@@ -74,7 +83,7 @@ function BibleStudiesInner() {
       );
     }
     if (filter === "overdue") {
-      list = list.filter(({ study }) => isStudyOverdue(study, today));
+      list = list.filter(({ study }) => overdueIds.has(study.id));
     } else if (filter !== "all") {
       list = list.filter(({ study }) => study.status === filter);
     }
@@ -100,7 +109,7 @@ function BibleStudiesInner() {
       );
     });
     return list;
-  }, [enriched, filter, query, areaFilter, sort, today]);
+  }, [enriched, filter, query, areaFilter, sort, overdueIds]);
 
   return (
     <div className="animate-fade-up space-y-5">
@@ -198,7 +207,7 @@ function BibleStudiesInner() {
               key={study.id}
               study={study}
               name={person?.name || "Student"}
-              overdue={isStudyOverdue(study, today)}
+              overdue={overdueIds.has(study.id)}
             />
           ))}
         </div>
