@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildActivities,
+  findPlannedVisitInSlot,
   nextActivityForPerson,
   returnVisitsToComplete,
   returnVisitsToSupersede,
@@ -369,5 +370,59 @@ describe("write-side helpers", () => {
     expect(
       returnVisitsToComplete(visits, "p1", TODAY, ["overdue"]).map((r) => r.id)
     ).toEqual(["today"]);
+  });
+});
+
+describe("a visit's topic", () => {
+  it("is its own next topic, never the previous visit's topic", () => {
+    const [withTopic] = build({
+      returnVisits: [
+        rv({ scheduled_date: "2026-10-15", last_topic: "Discussed last time", next_planned_topic: "Brand new topic" }),
+      ],
+    });
+    expect(withTopic.topic_or_lesson).toBe("Brand new topic");
+
+    const [noTopic] = build({
+      returnVisits: [
+        rv({ scheduled_date: "2026-10-15", last_topic: "Discussed last time", next_planned_topic: null }),
+      ],
+    });
+    expect(noTopic.topic_or_lesson).toBeNull();
+  });
+
+  it("follows the newest scheduled visit once the previous one is completed", () => {
+    const activities = build({
+      returnVisits: [
+        rv({ id: "done", status: "completed", scheduled_date: "2026-10-03", next_planned_topic: "Old topic" }),
+        rv({ id: "next", scheduled_date: "2026-10-10", next_planned_topic: "New topic" }),
+      ],
+    });
+    const next = nextActivityForPerson(activities, "p1");
+    expect(next?.return_visit_id).toBe("next");
+    expect(next?.topic_or_lesson).toBe("New topic");
+  });
+});
+
+describe("findPlannedVisitInSlot", () => {
+  const visits = [
+    rv({ id: "a", scheduled_date: "2026-10-10", scheduled_time: null }),
+    rv({ id: "b", scheduled_date: "2026-10-10", scheduled_time: "Afternoon" }),
+    rv({ id: "c", scheduled_date: "2026-10-10", status: "completed" }),
+    rv({ id: "d", scheduled_date: "2026-10-10", person_id: "p2" }),
+  ];
+
+  it("finds the planned visit in the same person/date/time slot", () => {
+    expect(findPlannedVisitInSlot(visits, "p1", "2026-10-10", null)?.id).toBe("a");
+    expect(findPlannedVisitInSlot(visits, "p1", "2026-10-10", "Afternoon")?.id).toBe("b");
+  });
+
+  it("treats empty and missing time as the same slot", () => {
+    expect(findPlannedVisitInSlot(visits, "p1", "2026-10-10", "")?.id).toBe("a");
+  });
+
+  it("ignores completed visits, other people, and other dates or times", () => {
+    expect(findPlannedVisitInSlot(visits, "p1", "2026-10-11", null)).toBeUndefined();
+    expect(findPlannedVisitInSlot(visits, "p1", "2026-10-10", "Morning")).toBeUndefined();
+    expect(findPlannedVisitInSlot(visits, "p3", "2026-10-10", null)).toBeUndefined();
   });
 });

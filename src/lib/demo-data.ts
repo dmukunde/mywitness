@@ -29,7 +29,7 @@ function eventsFromReturnVisits(
     scheduled_date: rv.scheduled_date,
     scheduled_time: rv.scheduled_time,
     general_location: rv.general_location,
-    topic_or_lesson: rv.next_planned_topic || rv.last_topic,
+    topic_or_lesson: rv.next_planned_topic,
     preparation_notes: rv.preparation_notes,
     status: rv.status,
     is_demo: true,

@@ -52,6 +52,7 @@ import {
 import { findDuplicateMinistryEvent } from "@/lib/ministry-scheduling";
 import {
   buildActivities,
+  findPlannedVisitInSlot,
   returnVisitsToComplete,
   returnVisitsToSupersede,
   type ScheduledActivity,
@@ -1753,8 +1754,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       if (demoMode) {
         const data = loadDemoData();
-        const conversation: Conversation = {
-          id: crypto.randomUUID(),
+        const alreadySaved = form.client_id
+          ? data.conversations.find((c) => c.id === form.client_id)
+          : undefined;
+        const built: Conversation = {
+          id: form.client_id || crypto.randomUUID(),
           user_id: "demo-user",
           person_id: person.id,
           session_id: form.session_id || null,
@@ -1782,30 +1786,62 @@ export function AppProvider({ children }: { children: ReactNode }) {
           created_at: now,
           updated_at: now,
         };
-        data.conversations = [conversation, ...data.conversations];
-        for (const ref of scriptureList) {
-          data.scriptures.push({
-            id: crypto.randomUUID(),
-            conversation_id: conversation.id,
-            user_id: "demo-user",
-            scripture_reference: ref,
-            created_at: now,
-          });
+        const conversation = alreadySaved ?? built;
+        if (!alreadySaved) {
+          data.conversations = [conversation, ...data.conversations];
+          for (const ref of scriptureList) {
+            data.scriptures.push({
+              id: crypto.randomUUID(),
+              conversation_id: conversation.id,
+              user_id: "demo-user",
+              scripture_reference: ref,
+              created_at: now,
+            });
+          }
         }
+
+        // A visit already scheduled for that same person/date/time is the
+        // one this form is planning — update it rather than duplicate it.
+        const sameVisit =
+          form.schedule_return_visit && form.promised_follow_up_date
+            ? findPlannedVisitInSlot(
+                data.returnVisits,
+                person.id,
+                form.promised_follow_up_date,
+                form.promised_follow_up_time || null
+              )
+            : undefined;
 
         // Visiting someone resolves the return visits that were due or
         // overdue for them — before scheduling the next one.
         const resolveIds = returnVisitsToComplete(
           data.returnVisits,
           person.id,
-          conversation.conversation_date
+          conversation.conversation_date,
+          sameVisit ? [sameVisit.id] : []
         ).map((rv) => rv.id);
         if (resolveIds.length) {
           setReturnVisitStatusDemo(data, resolveIds, "completed");
         }
 
         let returnVisit: ReturnVisit | undefined;
-        if (form.schedule_return_visit && form.promised_follow_up_date) {
+        if (sameVisit) {
+          returnVisit = {
+            ...sameVisit,
+            conversation_id: conversation.id,
+            last_topic: form.main_topic || sameVisit.last_topic,
+            question_to_answer: form.questions_asked || sameVisit.question_to_answer,
+            next_planned_topic: form.next_topic || sameVisit.next_planned_topic,
+            general_location: form.general_location || sameVisit.general_location,
+            preparation_notes:
+              form.next_visit_preparation || sameVisit.preparation_notes,
+            updated_at: now,
+          };
+          data.returnVisits = data.returnVisits.map((rv) =>
+            rv.id === sameVisit.id ? returnVisit! : rv
+          );
+          syncReturnVisitEventDemo(data, returnVisit);
+        } else if (form.schedule_return_visit && form.promised_follow_up_date) {
           returnVisit = {
             id: crypto.randomUUID(),
             user_id: "demo-user",
@@ -1852,9 +1888,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const supabase = createClient();
       const sessionId = emptyToNull(form.session_id);
 
-      const { data: conversation, error } = await supabase
+      // Saving the same form again (a retry after a failure, or a double
+      // tap) must update the one conversation, not insert a second.
+      let conversation: Conversation | null = null;
+      if (form.client_id) {
+        const { data: found } = await supabase
+          .from("conversations")
+          .select("*")
+          .eq("id", form.client_id)
+          .maybeSingle();
+        conversation = (found as Conversation | null) ?? null;
+      }
+      const alreadySaved = conversation !== null;
+      if (!conversation) {
+        const { data: inserted, error } = await supabase
         .from("conversations")
         .insert({
+          ...(form.client_id ? { id: form.client_id } : {}),
           user_id: user!.id,
           person_id: person.id,
           session_id: sessionId,
@@ -1881,9 +1931,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         })
         .select()
         .single();
-      if (error) throw error;
+        if (error) throw error;
+        conversation = inserted as Conversation;
+      }
 
-      if (scriptureList.length) {
+      if (scriptureList.length && !alreadySaved) {
         const { error: scriptureError } = await supabase
           .from("conversation_scriptures")
           .insert(
@@ -1896,6 +1948,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (scriptureError) throw scriptureError;
       }
 
+      // A visit already scheduled for that same person/date/time is the one
+      // this form is planning (scheduled earlier from the profile or
+      // Calendar, or by a previous attempt of this same save) — update it
+      // instead of failing after the conversation is already saved.
+      let sameVisit: ReturnVisit | undefined;
+      if (form.schedule_return_visit && form.promised_follow_up_date) {
+        const { data: planned } = await supabase
+          .from("return_visits")
+          .select("*")
+          .eq("person_id", person.id)
+          .eq("status", "planned")
+          .eq("scheduled_date", form.promised_follow_up_date);
+        sameVisit = findPlannedVisitInSlot(
+          (planned ?? []) as ReturnVisit[],
+          person.id,
+          form.promised_follow_up_date,
+          emptyToNull(form.promised_follow_up_time)
+        );
+      }
+
       // Visiting someone resolves the return visits that were due or overdue
       // for them — before scheduling the next one.
       await setReturnVisitStatusRemote(
@@ -1903,27 +1975,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
         returnVisitsToComplete(
           returnVisits,
           person.id,
-          (conversation as Conversation).conversation_date
+          conversation.conversation_date,
+          sameVisit ? [sameVisit.id] : []
         ).map((rv) => rv.id),
         "completed"
       );
 
-      // Schedule return visit when the form requests it
+      // The next visit's date AND topic come from this form, stored on the
+      // scheduled visit itself — that record is what People, Calendar and
+      // Home all read.
       let returnVisit: ReturnVisit | undefined;
-      if (form.schedule_return_visit && form.promised_follow_up_date) {
-        returnVisit = await createReturnVisit({
-          person_id: person.id,
+      if (sameVisit) {
+        const patch = {
           conversation_id: conversation.id,
-          scheduled_date: form.promised_follow_up_date,
-          scheduled_time: emptyToNull(form.promised_follow_up_time),
-          status: "planned",
-          last_topic: emptyToNull(form.main_topic),
-          question_to_answer: emptyToNull(form.questions_asked),
-          next_planned_topic: emptyToNull(form.next_topic),
-          general_location: emptyToNull(form.general_location),
-          preparation_notes: emptyToNull(form.next_visit_preparation),
-          completed_at: null,
-        });
+          last_topic: emptyToNull(form.main_topic) ?? sameVisit.last_topic,
+          question_to_answer:
+            emptyToNull(form.questions_asked) ?? sameVisit.question_to_answer,
+          next_planned_topic:
+            emptyToNull(form.next_topic) ?? sameVisit.next_planned_topic,
+          general_location:
+            emptyToNull(form.general_location) ?? sameVisit.general_location,
+          preparation_notes:
+            emptyToNull(form.next_visit_preparation) ?? sameVisit.preparation_notes,
+        };
+        await updateReturnVisit(sameVisit.id, patch);
+        returnVisit = { ...sameVisit, ...patch };
+      } else if (form.schedule_return_visit && form.promised_follow_up_date) {
+        returnVisit = await createReturnVisit(
+          {
+            person_id: person.id,
+            conversation_id: conversation.id,
+            scheduled_date: form.promised_follow_up_date,
+            scheduled_time: emptyToNull(form.promised_follow_up_time),
+            status: "planned",
+            last_topic: emptyToNull(form.main_topic),
+            question_to_answer: emptyToNull(form.questions_asked),
+            next_planned_topic: emptyToNull(form.next_topic),
+            general_location: emptyToNull(form.general_location),
+            preparation_notes: emptyToNull(form.next_visit_preparation),
+            completed_at: null,
+          },
+          // Same-slot duplicates were handled above; a different time on
+          // the same day is a genuinely separate appointment.
+          { allowDuplicate: true }
+        );
       }
 
       // Delete audio unless kept
@@ -1942,7 +2037,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         returnVisit,
       };
     },
-    [applyDemo, createReturnVisit, demoMode, refresh, returnVisits, savePerson, user]
+    [
+      applyDemo,
+      createReturnVisit,
+      demoMode,
+      refresh,
+      returnVisits,
+      savePerson,
+      updateReturnVisit,
+      user,
+    ]
   );
 
   const dismissReminder = useCallback(

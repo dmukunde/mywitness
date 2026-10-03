@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { Suspense, useRef } from "react";
 import { ConversationForm } from "@/components/ConversationForm";
 import { PageHeader } from "@/components/ui";
 import { useApp } from "@/lib/app-context";
@@ -12,6 +12,7 @@ function NewConversationInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { people, saveConversation } = useApp();
+  const submissionId = useRef<string | null>(null);
   const personId = searchParams.get("personId") || "";
   const person = people.find((p) => p.id === personId);
 
@@ -28,7 +29,10 @@ function NewConversationInner() {
   };
 
   const onSubmit = async (form: ConversationFormData) => {
-    await saveConversation(form);
+    // One id per form: saving again after a failure updates the same
+    // conversation rather than inserting a duplicate.
+    submissionId.current ??= crypto.randomUUID();
+    await saveConversation({ ...form, client_id: submissionId.current });
     router.replace("/today?saved=1");
   };
 

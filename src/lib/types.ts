@@ -455,6 +455,12 @@ export interface ConversationFormData {
   source: "voice" | "manual";
   session_id: string;
   audio_path: string;
+  /**
+   * Generated once per form, so saving the same form twice (a retry after a
+   * failure, or a double tap) updates the one conversation instead of
+   * inserting a duplicate.
+   */
+  client_id?: string;
 }
 
 export const INTEREST_LABELS: Record<InterestLevel, string> = {

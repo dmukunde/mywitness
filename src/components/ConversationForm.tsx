@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Button,
   Input,
@@ -40,6 +40,7 @@ export function ConversationForm({
     ...initial,
   });
   const [saving, setSaving] = useState(false);
+  const inFlight = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   const update = <K extends keyof ConversationFormData>(
@@ -55,6 +56,8 @@ export function ConversationForm({
       setError("Please enter a name or select a person.");
       return;
     }
+    if (inFlight.current) return;
+    inFlight.current = true;
     setSaving(true);
     setError(null);
     try {
@@ -75,6 +78,7 @@ export function ConversationForm({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save.");
       setSaving(false);
+      inFlight.current = false;
     }
   };
 

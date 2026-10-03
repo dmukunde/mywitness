@@ -115,7 +115,8 @@ export function buildActivities(input: ScheduleInput): ScheduledActivity[] {
       scheduled_date: rv.scheduled_date,
       scheduled_time: rv.scheduled_time,
       general_location: rv.general_location,
-      topic_or_lesson: rv.next_planned_topic || rv.last_topic,
+      // The topic planned for THIS visit — not the previous visit's.
+      topic_or_lesson: rv.next_planned_topic,
       preparation_notes: rv.preparation_notes,
       status,
       is_demo: rv.is_demo,
@@ -185,6 +186,26 @@ export function nextActivityForPerson(
 ): ScheduledActivity | null {
   return (
     unresolved(activities).find((a) => a.person_id === personId) ?? null
+  );
+}
+
+/**
+ * The planned visit already occupying a person's date/time slot, if any.
+ * Saving a conversation whose follow-up lands on an existing scheduled visit
+ * should update that visit, not fail or create a second one.
+ */
+export function findPlannedVisitInSlot(
+  returnVisits: ReturnVisit[],
+  personId: string,
+  date: string,
+  time: string | null
+): ReturnVisit | undefined {
+  return returnVisits.find(
+    (rv) =>
+      rv.person_id === personId &&
+      rv.status === "planned" &&
+      rv.scheduled_date === date &&
+      (rv.scheduled_time || null) === (time || null)
   );
 }
 

@@ -49,6 +49,7 @@ function RecordConversationInner() {
   const [audioPath, setAudioPath] = useState("");
   const [reviewStep, setReviewStep] = useState<ReviewStep>("summary");
   const [saving, setSaving] = useState(false);
+  const submissionId = useRef<string | null>(null);
   const processRef = useRef<(blob: Blob) => Promise<void>>(async () => {});
 
   const {
@@ -167,6 +168,7 @@ function RecordConversationInner() {
   ]);
 
   const resetRecording = () => {
+    submissionId.current = null;
     setForm(null);
     setAudioPath("");
     setUncertainFields([]);
@@ -178,9 +180,11 @@ function RecordConversationInner() {
   const onSubmit = async (data: ConversationFormData) => {
     setSaving(true);
     try {
+      submissionId.current ??= crypto.randomUUID();
       await saveConversation({
         ...data,
         audio_path: audioPath || data.audio_path,
+        client_id: submissionId.current,
       });
       const rvId = searchParams.get("returnVisitId");
       if (rvId) {

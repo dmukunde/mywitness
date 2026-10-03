@@ -49,6 +49,7 @@ export default function PersonProfilePage() {
   const [scheduling, setScheduling] = useState(false);
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleTime, setScheduleTime] = useState("");
+  const [scheduleTopic, setScheduleTopic] = useState("");
 
   const person = people.find((p) => p.id === params.id);
 
@@ -154,15 +155,19 @@ export default function PersonProfilePage() {
     if (!scheduleDate) return;
     const visit = {
       person_id: person.id,
+      // The conversation this visit follows up on (history), not a source
+      // of the new visit's topic.
       conversation_id: timeline[0]?.id || null,
       scheduled_date: scheduleDate,
       scheduled_time: scheduleTime || null,
       status: "planned" as const,
-      last_topic: person.current_discussion_theme,
+      last_topic: timeline[0]?.main_topic || person.current_discussion_theme,
       question_to_answer: person.key_questions,
-      next_planned_topic: timeline[0]?.next_topic || null,
+      // "Next topic" belongs to this new scheduled visit: whatever the user
+      // enters here, never the previous conversation's stale one.
+      next_planned_topic: scheduleTopic.trim() || null,
       general_location: person.general_location,
-      preparation_notes: timeline[0]?.next_visit_preparation || null,
+      preparation_notes: null,
       completed_at: null,
     };
     try {
@@ -182,6 +187,7 @@ export default function PersonProfilePage() {
     setScheduling(false);
     setScheduleDate("");
     setScheduleTime("");
+    setScheduleTopic("");
   };
 
   if (editing) {
@@ -355,6 +361,14 @@ export default function PersonProfilePage() {
         ) : (
           <Row label="Next visit" value={null} />
         )}
+        {nextVisit?.topic_or_lesson && (
+          <div className="flex items-start justify-between gap-3">
+            <span className="text-stone-400">
+              {nextVisit.event_type === "bible_study" ? "Lesson" : "Next topic"}
+            </span>
+            <TopicBadge topic={nextVisit.topic_or_lesson} tone="amber" />
+          </div>
+        )}
         {person.private_notes && (
           <div className="pt-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">
@@ -460,15 +474,9 @@ export default function PersonProfilePage() {
                     Shared: {c.publications_shared}
                   </p>
                 )}
-                {c.next_topic && (
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    <span className="text-xs text-stone-500">Next:</span>
-                    <TopicBadge topic={c.next_topic} tone="amber" />
-                  </div>
-                )}
-                {!c.next_topic && c.action_required && (
+                {c.action_required && (
                   <p className="mt-2 text-xs font-medium text-stone-600">
-                    Next: {c.action_required}
+                    To do: {c.action_required}
                   </p>
                 )}
               </Card>
@@ -510,6 +518,12 @@ export default function PersonProfilePage() {
               value={scheduleTime}
               onChange={(e) => setScheduleTime(e.target.value)}
               placeholder="Afternoon"
+            />
+            <Input
+              label="Next topic (optional)"
+              value={scheduleTopic}
+              onChange={(e) => setScheduleTopic(e.target.value)}
+              placeholder="What do you plan to discuss?"
             />
           </Card>
         </div>

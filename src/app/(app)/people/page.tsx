@@ -178,6 +178,7 @@ export default function PeoplePage() {
               latestTopic={latest?.main_topic}
               lastContact={latest?.conversation_date || person.first_met_date}
               nextVisit={nextVisit?.scheduled_date}
+              nextTopic={nextVisit?.topic_or_lesson}
               overdue={overdue}
             />
           ))}
@@ -192,12 +193,14 @@ function PersonCard({
   latestTopic,
   lastContact,
   nextVisit,
+  nextTopic,
   overdue,
 }: {
   person: Person;
   latestTopic?: string | null;
   lastContact?: string | null;
   nextVisit?: string | null;
+  nextTopic?: string | null;
   overdue: boolean;
 }) {
   return (
@@ -226,6 +229,12 @@ function PersonCard({
                 ? ` · Next: ${formatDisplayDate(nextVisit)}`
                 : " · No visit scheduled"}
             </p>
+            {nextTopic && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <span className="text-xs text-stone-500">Next topic:</span>
+                <TopicBadge topic={nextTopic} tone="amber" />
+              </div>
+            )}
           </div>
           <InterestBadge level={person.interest_level} />
         </div>
