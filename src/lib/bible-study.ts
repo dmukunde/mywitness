@@ -1,5 +1,17 @@
 import type { BibleStudy } from "@/lib/types";
 
+/**
+ * Scheduling a next study means the study is going on: a paused or finished
+ * study that gets a next appointment is reopened, so the appointment is
+ * visible everywhere. (A study only has an appointment while it is active.)
+ */
+export function statusAfterScheduling(
+  status: BibleStudy["status"],
+  nextDate: string | null
+): BibleStudy["status"] {
+  return nextDate ? "active" : status;
+}
+
 /** Progress 0–100 from lesson number / total (user-editable total). */
 export function studyProgressPercent(study: Pick<
   BibleStudy,

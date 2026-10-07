@@ -18,6 +18,7 @@ import {
   studyProgressPercent,
 } from "@/lib/bible-study";
 import { formatDisplayDate } from "@/lib/utils";
+import type { ScheduledActivity } from "@/lib/schedule";
 import type { BibleStudy, BibleStudyStatus } from "@/lib/types";
 
 type SortKey = "next" | "recent" | "name" | "progress";
@@ -43,6 +44,16 @@ function BibleStudiesInner() {
       ),
     [activities]
   );
+  // Each study's appointment, from the same shared list Calendar and Home
+  // use (an inactive study has none, whatever its raw date field says).
+  const nextByStudy = useMemo(() => {
+    const m = new Map<string, ScheduledActivity>();
+    for (const a of activities) {
+      if (a.event_type !== "bible_study" || a.state === "completed") continue;
+      if (a.bible_study_id && !m.has(a.bible_study_id)) m.set(a.bible_study_id, a);
+    }
+    return m;
+  }, [activities]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [areaFilter, setAreaFilter] = useState("all");
@@ -104,12 +115,12 @@ function BibleStudiesInner() {
           a.study.last_study_date || ""
         );
       }
-      return (a.study.next_study_date || "9999").localeCompare(
-        b.study.next_study_date || "9999"
+      return (nextByStudy.get(a.study.id)?.scheduled_date || "9999").localeCompare(
+        nextByStudy.get(b.study.id)?.scheduled_date || "9999"
       );
     });
     return list;
-  }, [enriched, filter, query, areaFilter, sort, overdueIds]);
+  }, [enriched, filter, query, areaFilter, sort, overdueIds, nextByStudy]);
 
   return (
     <div className="animate-fade-up space-y-5">
@@ -208,6 +219,7 @@ function BibleStudiesInner() {
               study={study}
               name={person?.name || "Student"}
               overdue={overdueIds.has(study.id)}
+              next={nextByStudy.get(study.id) ?? null}
             />
           ))}
         </div>
@@ -251,10 +263,12 @@ function StudyCard({
   study,
   name,
   overdue,
+  next,
 }: {
   study: BibleStudy;
   name: string;
   overdue: boolean;
+  next: ScheduledActivity | null;
 }) {
   const pct = studyProgressPercent(study);
   const statusKind =
@@ -281,9 +295,9 @@ function StudyCard({
                 : "—"}
               {" · "}
               Next:{" "}
-              {study.next_study_date
-                ? `${formatDisplayDate(study.next_study_date)}${
-                    study.next_study_time ? ` · ${study.next_study_time}` : ""
+              {next
+                ? `${formatDisplayDate(next.scheduled_date)}${
+                    next.scheduled_time ? ` · ${next.scheduled_time}` : ""
                   }`
                 : "—"}
             </p>

@@ -190,6 +190,25 @@ export function nextActivityForPerson(
 }
 
 /**
+ * A study's upcoming (or overdue) appointment, if it has one.
+ *
+ * A study has an appointment only while it is active — a paused or finished
+ * study has none, whatever its raw `next_study_date` still says. Every screen
+ * that shows "next study" reads it here (not from the study row) so the study
+ * page, the Bible Studies list, Home and Calendar always agree.
+ */
+export function nextActivityForStudy(
+  activities: ScheduledActivity[],
+  studyId: string
+): ScheduledActivity | null {
+  return (
+    unresolved(activities).find(
+      (a) => a.event_type === "bible_study" && a.bible_study_id === studyId
+    ) ?? null
+  );
+}
+
+/**
  * The planned visit already occupying a person's date/time slot, if any.
  * Saving a conversation whose follow-up lands on an existing scheduled visit
  * should update that visit, not fail or create a second one.

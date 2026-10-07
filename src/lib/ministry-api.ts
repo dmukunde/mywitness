@@ -4,7 +4,7 @@
 import { createClient } from "@/lib/supabase/client";
 import type { DemoData } from "@/lib/demo-data";
 import { loadDemoData, saveDemoData } from "@/lib/demo-store";
-import { parseLessonNumber } from "@/lib/bible-study";
+import { parseLessonNumber, statusAfterScheduling } from "@/lib/bible-study";
 import { emptyToNull, todayISO } from "@/lib/utils";
 import type {
   BibleStudy,
@@ -470,6 +470,10 @@ export function saveStudySessionDemo(
     last_study_date: session.session_date,
     next_study_date: next.date,
     next_study_time: next.time,
+    status: statusAfterScheduling(
+      study.status,
+      emptyToNull(form.next_scheduled_date)
+    ),
     preparation_notes: form.preparation_notes || study.preparation_notes,
     updated_at: now,
   };
@@ -639,6 +643,10 @@ export async function saveStudySessionRemote(
       last_study_date: sessionDate,
       next_study_date: next.date,
       next_study_time: next.time,
+      status: statusAfterScheduling(
+        study.status,
+        emptyToNull(form.next_scheduled_date)
+      ),
       preparation_notes:
         emptyToNull(form.preparation_notes) || study.preparation_notes,
     })

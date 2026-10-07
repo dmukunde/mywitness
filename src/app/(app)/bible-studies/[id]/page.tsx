@@ -21,10 +21,13 @@ import {
 import { WhatsAppButton } from "@/components/WhatsAppButton";
 import { PersonPhotoGallery } from "@/components/PersonPhotoGallery";
 import {
+  statusAfterScheduling,
   studyProgressLabel,
   studyProgressPercent,
 } from "@/lib/bible-study";
 import { formatDisplayDate, parseScriptures } from "@/lib/utils";
+import { formatDbError } from "@/lib/db-errors";
+import { nextActivityForStudy } from "@/lib/schedule";
 
 export default function BibleStudyProfilePage() {
   const params = useParams<{ id: string }>();
@@ -56,6 +59,7 @@ export default function BibleStudyProfilePage() {
   const [nextDate, setNextDate] = useState("");
   const [nextTime, setNextTime] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [finishing, setFinishing] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -73,6 +77,9 @@ export default function BibleStudyProfilePage() {
   }
 
   const pct = studyProgressPercent(study);
+  // The study's appointment as the rest of the app sees it (Calendar, Home):
+  // only an active study has one.
+  const nextActivity = nextActivityForStudy(activities, study.id);
   const overdue = activities.some(
     (a) =>
       a.event_type === "bible_study" &&
@@ -88,31 +95,39 @@ export default function BibleStudyProfilePage() {
 
   const saveNext = async () => {
     if (!nextDate) return;
-    await saveBibleStudy(
-      {
-        person_id: study.person_id,
-        publication: study.publication,
-        starting_lesson: study.starting_lesson || "",
-        current_lesson: study.current_lesson || "",
-        current_lesson_number: study.current_lesson_number,
-        total_lessons: study.total_lessons,
-        study_frequency: study.study_frequency,
-        preferred_day: study.preferred_day || "",
-        preferred_time: study.preferred_time || "",
-        first_study_date: study.first_study_date || "",
-        next_study_date: nextDate,
-        next_study_time: nextTime,
-        general_location: study.general_location || "",
-        location_lat: person?.location_lat ?? null,
-        location_lng: person?.location_lng ?? null,
-        status: study.status,
-        preparation_notes: study.preparation_notes || "",
-        private_notes: study.private_notes || "",
-        source_return_visit_id: study.source_return_visit_id || "",
-      },
-      study.id
-    );
-    setScheduling(false);
+    try {
+      await saveBibleStudy(
+        {
+          person_id: study.person_id,
+          publication: study.publication,
+          starting_lesson: study.starting_lesson || "",
+          current_lesson: study.current_lesson || "",
+          current_lesson_number: study.current_lesson_number,
+          total_lessons: study.total_lessons,
+          study_frequency: study.study_frequency,
+          preferred_day: study.preferred_day || "",
+          preferred_time: study.preferred_time || "",
+          first_study_date: study.first_study_date || "",
+          next_study_date: nextDate,
+          next_study_time: nextTime,
+          general_location: study.general_location || "",
+          location_lat: person?.location_lat ?? null,
+          location_lng: person?.location_lng ?? null,
+          // Scheduling the next study means it is going on — reopen a paused
+          // or finished study so the appointment shows on Calendar and Home.
+          status: statusAfterScheduling(study.status, nextDate),
+          preparation_notes: study.preparation_notes || "",
+          private_notes: study.private_notes || "",
+          source_return_visit_id: study.source_return_visit_id || "",
+        },
+        study.id
+      );
+      setScheduling(false);
+    } catch (err) {
+      window.alert(
+        formatDbError("schedule next study", err, "Could not schedule the next study.")
+      );
+    }
   };
 
   const confirmDelete = async () => {
@@ -161,19 +176,30 @@ export default function BibleStudyProfilePage() {
 
       <Card className="space-y-2 text-sm ring-amber-50">
         <Row label="Current lesson" value={study.current_lesson} />
-        {study.next_study_date ? (
+        {nextActivity ? (
           <Link
-            href={`/calendar?date=${study.next_study_date}`}
+            href={`/calendar?date=${nextActivity.scheduled_date}`}
             className="flex justify-between gap-3"
           >
             <span className="text-stone-500">Next study</span>
             <span className="text-right text-amber-800 underline decoration-amber-200 underline-offset-2">
-              {formatDisplayDate(study.next_study_date)}
-              {study.next_study_time ? ` · ${study.next_study_time}` : ""}
+              {formatDisplayDate(nextActivity.scheduled_date)}
+              {nextActivity.scheduled_time
+                ? ` · ${nextActivity.scheduled_time}`
+                : ""}
             </span>
           </Link>
         ) : (
-          <Row label="Next study" value={null} />
+          <Row
+            label="Next study"
+            value={
+              study.status === "active"
+                ? null
+                : study.status === "paused"
+                  ? "Paused — schedule one to resume"
+                  : "Finished — schedule one to reopen"
+            }
+          />
         )}
         <Row
           label="Last study"
@@ -240,9 +266,9 @@ export default function BibleStudyProfilePage() {
           <Button
             variant="ghost"
             className="w-full text-emerald-800"
-            onClick={() => void updateBibleStudyStatus(study.id, "completed")}
+            onClick={() => setFinishing(true)}
           >
-            Finish this study
+            Mark study as finished
           </Button>
         )}
         {person && (
@@ -290,6 +316,18 @@ export default function BibleStudyProfilePage() {
           </Button>
         </Card>
       )}
+
+      <ConfirmDialog
+        open={finishing}
+        title="Mark this study as finished?"
+        message="This ends the whole study and removes its upcoming appointment from your calendar. Your session history stays. You can reopen it any time by scheduling a next study. To skip just one session, use Schedule next study instead."
+        confirmLabel="Mark as finished"
+        onConfirm={() => {
+          setFinishing(false);
+          void updateBibleStudyStatus(study.id, "completed");
+        }}
+        onCancel={() => setFinishing(false)}
+      />
 
       <ConfirmDialog
         open={deleting}

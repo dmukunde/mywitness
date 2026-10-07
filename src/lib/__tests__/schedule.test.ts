@@ -3,10 +3,12 @@ import {
   buildActivities,
   findPlannedVisitInSlot,
   nextActivityForPerson,
+  nextActivityForStudy,
   returnVisitsToComplete,
   returnVisitsToSupersede,
   type ScheduleInput,
 } from "@/lib/schedule";
+import { statusAfterScheduling } from "@/lib/bible-study";
 import type {
   BibleStudy,
   BibleStudySession,
@@ -424,5 +426,64 @@ describe("findPlannedVisitInSlot", () => {
     expect(findPlannedVisitInSlot(visits, "p1", "2026-10-11", null)).toBeUndefined();
     expect(findPlannedVisitInSlot(visits, "p1", "2026-10-10", "Morning")).toBeUndefined();
     expect(findPlannedVisitInSlot(visits, "p3", "2026-10-10", null)).toBeUndefined();
+  });
+});
+
+describe("a study's appointment", () => {
+  const upcoming = { next_study_date: "2026-10-14", next_study_time: "10:00" };
+
+  it("is the same record Calendar/Home read for an active study", () => {
+    const acts = build({ bibleStudies: [study({ ...upcoming })] });
+    const next = nextActivityForStudy(acts, "s1");
+    expect(next?.scheduled_date).toBe("2026-10-14");
+    expect(next?.scheduled_time).toBe("10:00");
+    expect(acts.filter((a) => a.bible_study_id === "s1")).toHaveLength(1);
+  });
+
+  it("does not exist for a finished or paused study, whatever its date field says", () => {
+    for (const status of ["completed", "paused"] as const) {
+      const acts = build({ bibleStudies: [study({ ...upcoming, status })] });
+      expect(nextActivityForStudy(acts, "s1")).toBeNull();
+      expect(acts).toHaveLength(0);
+    }
+  });
+
+  it("appears exactly once after a finished study is reopened with a date", () => {
+    const reopened = study({
+      ...upcoming,
+      status: statusAfterScheduling("completed", "2026-10-14"),
+    });
+    const acts = build({ bibleStudies: [reopened] });
+    expect(acts.filter((a) => a.bible_study_id === "s1")).toHaveLength(1);
+    expect(nextActivityForStudy(acts, "s1")?.state).toBe("upcoming");
+  });
+
+  it("scheduling reopens; no new date leaves the status alone", () => {
+    expect(statusAfterScheduling("completed", "2026-10-14")).toBe("active");
+    expect(statusAfterScheduling("paused", "2026-10-14")).toBe("active");
+    expect(statusAfterScheduling("completed", null)).toBe("completed");
+    expect(statusAfterScheduling("paused", null)).toBe("paused");
+  });
+
+  it("is resolved once held, so only the new date remains", () => {
+    const acts = build({
+      bibleStudies: [study({ ...upcoming })],
+      events: [
+        event({
+          id: "e-old",
+          return_visit_id: null,
+          bible_study_id: "s1",
+          event_type: "bible_study",
+          scheduled_date: "2026-10-07",
+          status: "completed",
+        }),
+      ],
+    });
+    const forStudy = acts.filter((a) => a.bible_study_id === "s1");
+    expect(forStudy.map((a) => [a.scheduled_date, a.state])).toEqual([
+      ["2026-10-07", "completed"],
+      ["2026-10-14", "upcoming"],
+    ]);
+    expect(nextActivityForStudy(acts, "s1")?.scheduled_date).toBe("2026-10-14");
   });
 });
