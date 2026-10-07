@@ -95,11 +95,20 @@ export async function upsertReturnVisitEventSupabase(
   rv: ReturnVisit
 ) {
   const supabase = createClient();
-  const { data: existing } = await supabase
+  // A visit has exactly one calendar event. If extras ever exist (an old
+  // double-tap or race), a single-row lookup used to fail silently and every
+  // later change inserted yet another copy — so take the first and drop the
+  // rest (they're only mirrors of this visit).
+  const { data: rows } = await supabase
     .from("scheduled_ministry_events")
     .select("id")
     .eq("return_visit_id", rv.id)
-    .maybeSingle();
+    .order("created_at", { ascending: true });
+  const existing = rows?.[0];
+  const extraIds = (rows ?? []).slice(1).map((r) => r.id);
+  if (extraIds.length) {
+    await supabase.from("scheduled_ministry_events").delete().in("id", extraIds);
+  }
 
   const payload = {
     user_id: userId,
@@ -121,7 +130,16 @@ export async function upsertReturnVisitEventSupabase(
       .update(payload)
       .eq("id", existing.id);
   } else {
-    await supabase.from("scheduled_ministry_events").insert(payload);
+    const { error } = await supabase
+      .from("scheduled_ministry_events")
+      .insert(payload);
+    // Another save created this visit's event first (a race): update it.
+    if (error?.code === "23505") {
+      await supabase
+        .from("scheduled_ministry_events")
+        .update(payload)
+        .eq("return_visit_id", rv.id);
+    }
   }
 }
 
@@ -180,7 +198,17 @@ export async function upsertBibleStudyEventSupabase(
       .update(payload)
       .eq("id", existing.id);
   } else {
-    await supabase.from("scheduled_ministry_events").insert(payload);
+    const { error } = await supabase
+      .from("scheduled_ministry_events")
+      .insert(payload);
+    // Another save created this study's planned event first: update it.
+    if (error?.code === "23505") {
+      await supabase
+        .from("scheduled_ministry_events")
+        .update(payload)
+        .eq("bible_study_id", study.id)
+        .eq("status", "planned");
+    }
   }
 }
 
@@ -311,14 +339,21 @@ export function buildStudyFromForm(
 
 export function saveBibleStudyDemo(
   form: BibleStudyFormData,
-  existingId?: string
+  existingId?: string,
+  clientId?: string
 ): BibleStudy {
   const data = loadDemoData();
   const now = new Date().toISOString();
+  if (!existingId && clientId) {
+    // Same user action seen twice: return the study already created.
+    const repeat = data.bibleStudies.find((s) => s.id === clientId);
+    if (repeat) return repeat;
+  }
   const existing = existingId
     ? data.bibleStudies.find((s) => s.id === existingId)
     : undefined;
   const study = buildStudyFromForm(form, "demo-user", now, existing);
+  if (!existing && clientId) study.id = clientId;
 
   if (existing) {
     data.bibleStudies = data.bibleStudies.map((s) =>
@@ -451,7 +486,8 @@ export type ApplyDemoFn = (data: DemoData) => void;
 export async function saveBibleStudyRemote(
   form: BibleStudyFormData,
   userId: string,
-  existingId?: string
+  existingId?: string,
+  clientId?: string
 ): Promise<BibleStudy> {
   const supabase = createClient();
   const now = new Date().toISOString();
@@ -491,10 +527,25 @@ export async function saveBibleStudyRemote(
   } else {
     const { data, error } = await supabase
       .from("bible_studies")
-      .insert({ ...row, user_id: userId })
+      .insert({
+        ...(clientId ? { id: clientId } : {}),
+        ...row,
+        user_id: userId,
+      })
       .select()
       .single();
-    if (error) throw error;
+    if (error) {
+      // Same user action seen twice (retry / double tap): that study exists.
+      if (error.code === "23505" && clientId) {
+        const { data: existing } = await supabase
+          .from("bible_studies")
+          .select("*")
+          .eq("id", clientId)
+          .maybeSingle();
+        if (existing) return existing as BibleStudy;
+      }
+      throw error;
+    }
     study = data as BibleStudy;
   }
 

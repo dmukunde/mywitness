@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
+import { useSingleFlight } from "@/hooks/useSingleFlight";
 import { Suspense, useEffect, useRef, useState } from "react";
 import {
   Mic,
@@ -50,6 +51,7 @@ function RecordConversationInner() {
   const [reviewStep, setReviewStep] = useState<ReviewStep>("summary");
   const [saving, setSaving] = useState(false);
   const submissionId = useRef<string | null>(null);
+  const guard = useSingleFlight();
   const processRef = useRef<(blob: Blob) => Promise<void>>(async () => {});
 
   const {
@@ -198,7 +200,7 @@ function RecordConversationInner() {
     }
   };
 
-  const saveFromSummary = async () => {
+  const doSaveFromSummary = async () => {
     if (!form) return;
     setSaving(true);
     try {
@@ -211,6 +213,7 @@ function RecordConversationInner() {
       setSaving(false);
     }
   };
+  const saveFromSummary = () => guard(doSaveFromSummary);
 
   if (form && status === "complete" && reviewStep === "details") {
     return (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSingleFlight } from "@/hooks/useSingleFlight";
 import { Button, Input, Textarea, TimeField } from "@/components/ui";
 import {
   EMPTY_STUDY_SESSION_FORM,
@@ -25,6 +26,7 @@ export function StudySessionForm({
     ...initial,
   });
   const [saving, setSaving] = useState(false);
+  const guard = useSingleFlight();
   const [error, setError] = useState<string | null>(null);
 
   const update = <K extends keyof BibleStudySessionFormData>(
@@ -132,16 +134,18 @@ export function StudySessionForm({
         <Button
           className="flex-1 bg-amber-700 hover:bg-amber-800"
           disabled={saving}
-          onClick={async () => {
-            setSaving(true);
-            setError(null);
-            try {
-              await onSubmit(form);
-            } catch (err) {
-              setError(err instanceof Error ? err.message : "Could not save.");
-              setSaving(false);
-            }
-          }}
+          onClick={() =>
+            guard(async () => {
+              setSaving(true);
+              setError(null);
+              try {
+                await onSubmit(form);
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "Could not save.");
+                setSaving(false);
+              }
+            })
+          }
         >
           {saving ? "Saving…" : submitLabel}
         </Button>

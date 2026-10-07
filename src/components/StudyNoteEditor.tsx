@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSingleFlight } from "@/hooks/useSingleFlight";
 import { Star } from "lucide-react";
 import { Button, Card, Input, Select, Textarea } from "@/components/ui";
 import {
@@ -79,6 +80,7 @@ export function StudyNoteEditor({
 }) {
   const [form, setForm] = useState<StudyNoteFormData>(initial);
   const [saving, setSaving] = useState(false);
+  const guard = useSingleFlight();
   const [error, setError] = useState<string | null>(null);
   const ctx = TYPE_CONTEXT[form.note_type];
 
@@ -87,7 +89,7 @@ export function StudyNoteEditor({
     value: StudyNoteFormData[K]
   ) => setForm((f) => ({ ...f, [key]: value }));
 
-  const handleSubmit = async () => {
+  const doSubmit = async () => {
     if (!form.title.trim()) {
       setError("Please enter a title or topic.");
       return;
@@ -101,6 +103,8 @@ export function StudyNoteEditor({
       setSaving(false);
     }
   };
+
+  const handleSubmit = () => guard(doSubmit);
 
   return (
     <div className="space-y-4">

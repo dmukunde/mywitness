@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSingleFlight } from "@/hooks/useSingleFlight";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -86,6 +87,9 @@ function CalendarInner() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dupConfirm, setDupConfirm] = useState(false);
+  const guard = useSingleFlight();
+  // One id per open schedule form, so saving twice creates one appointment.
+  const scheduleId = useRef<string | null>(null);
 
   const events = useMemo(() => {
     // Shared with People/Home/Bible Studies (lib/schedule.ts) — one
@@ -156,6 +160,7 @@ function CalendarInner() {
     "Person";
 
   const openSchedule = () => {
+    scheduleId.current = null;
     setScheduleStep("choose");
     setError(null);
     setDupConfirm(false);
@@ -169,7 +174,8 @@ function CalendarInner() {
     });
   };
 
-  const saveSchedule = async (allowDuplicate = false) => {
+  const doSave = async (allowDuplicate = false) => {
+    scheduleId.current ??= crypto.randomUUID();
     if (!form.person_id) {
       setError("Select a person.");
       return;
@@ -220,7 +226,7 @@ function CalendarInner() {
             preparation_notes: form.notes || null,
             completed_at: null,
           },
-          { allowDuplicate: true }
+          { allowDuplicate: true, clientId: scheduleId.current }
         );
       } else {
         const existingStudy = bibleStudies.find(
@@ -284,11 +290,12 @@ function CalendarInner() {
               source_return_visit_id: "",
             },
             undefined,
-            { allowDuplicate: true }
+            { allowDuplicate: true, clientId: scheduleId.current }
           );
         }
       }
 
+      scheduleId.current = null;
       setSelectedDay(form.scheduled_date);
       setCursor(parseISO(form.scheduled_date));
       setScheduleStep(null);
@@ -299,6 +306,9 @@ function CalendarInner() {
       setSaving(false);
     }
   };
+
+  const saveSchedule = (allowDuplicate = false) =>
+    guard(() => doSave(allowDuplicate));
 
   return (
     <div className="animate-fade-up space-y-5">

@@ -14,6 +14,7 @@ import {
 } from "@/components/ui";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { BackupRestore } from "@/components/BackupRestore";
+import { DuplicateCleanup } from "@/components/DuplicateCleanup";
 import { todayISO } from "@/lib/utils";
 import { formatDbError } from "@/lib/db-errors";
 
@@ -513,6 +514,13 @@ export default function SettingsPage() {
           </Card>
         )}
       </section>
+
+      {isSupabaseConfigured() && !demoMode && (
+        <section>
+          <SectionTitle title="Data health" />
+          <DuplicateCleanup />
+        </section>
+      )}
 
       <section>
         <SectionTitle title="Account" />

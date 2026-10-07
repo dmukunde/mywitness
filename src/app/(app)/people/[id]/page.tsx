@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef } from "react";
+import { useSingleFlight } from "@/hooks/useSingleFlight";
 import { useApp } from "@/lib/app-context";
 import {
   Button,
@@ -50,6 +51,9 @@ export default function PersonProfilePage() {
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleTime, setScheduleTime] = useState("");
   const [scheduleTopic, setScheduleTopic] = useState("");
+  const guard = useSingleFlight();
+  // One id per open dialog: confirming twice schedules one visit, not two.
+  const scheduleId = useRef<string | null>(null);
 
   const person = people.find((p) => p.id === params.id);
 
@@ -151,8 +155,9 @@ export default function PersonProfilePage() {
     router.replace("/people");
   };
 
-  const handleSchedule = async () => {
+  const doSchedule = async () => {
     if (!scheduleDate) return;
+    scheduleId.current ??= crypto.randomUUID();
     const visit = {
       person_id: person.id,
       // The conversation this visit follows up on (history), not a source
@@ -171,24 +176,24 @@ export default function PersonProfilePage() {
       completed_at: null,
     };
     try {
-      await createReturnVisit(visit);
+      await createReturnVisit(visit, { clientId: scheduleId.current });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
       if (msg.startsWith("DUPLICATE_EVENT:")) {
-        const ok = window.confirm(
-          `${msg.replace("DUPLICATE_EVENT: ", "")}\n\nSave as a separate appointment anyway?`
-        );
-        if (!ok) return;
-        await createReturnVisit(visit, { allowDuplicate: true });
-      } else {
-        throw err;
+        // Same person, same date and time is the same visit, not a second one.
+        window.alert(msg.replace("DUPLICATE_EVENT: ", ""));
+        setScheduling(false);
+        return;
       }
+      throw err;
     }
+    scheduleId.current = null;
     setScheduling(false);
     setScheduleDate("");
     setScheduleTime("");
     setScheduleTopic("");
   };
+  const handleSchedule = () => guard(doSchedule);
 
   if (editing) {
     return (

@@ -141,7 +141,15 @@ interface AppContextValue {
   saveConversation: (
     form: ConversationFormData
   ) => Promise<{ person: Person; conversation: Conversation; returnVisit?: ReturnVisit }>;
-  savePerson: (person: Partial<Person> & { name: string }) => Promise<Person>;
+  /**
+   * Create (no id) or update (id) a person. Pass `clientId` when creating so
+   * the same user action is idempotent: a retry or double tap returns the
+   * person already created instead of inserting a second one.
+   */
+  savePerson: (
+    person: Partial<Person> & { name: string },
+    opts?: { clientId?: string }
+  ) => Promise<Person>;
   archivePerson: (id: string) => Promise<void>;
   updateReturnVisit: (
     id: string,
@@ -149,12 +157,12 @@ interface AppContextValue {
   ) => Promise<void>;
   createReturnVisit: (
     visit: Omit<ReturnVisit, "id" | "user_id" | "created_at" | "updated_at" | "is_demo">,
-    opts?: { allowDuplicate?: boolean }
+    opts?: { allowDuplicate?: boolean; clientId?: string }
   ) => Promise<ReturnVisit>;
   saveBibleStudy: (
     form: BibleStudyFormData,
     existingId?: string,
-    opts?: { allowDuplicate?: boolean }
+    opts?: { allowDuplicate?: boolean; clientId?: string }
   ) => Promise<BibleStudy>;
   saveStudySession: (
     form: BibleStudySessionFormData
@@ -516,7 +524,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (!user || !isSupabaseConfigured()) return;
-    await refreshFromSupabase(user.id, user.email);
+    // A failed re-fetch after a save that already succeeded must not be
+    // reported as "could not save" — the user would retry and create a
+    // duplicate. Log it; the next refresh catches the screen up.
+    try {
+      await refreshFromSupabase(user.id, user.email);
+    } catch (err) {
+      console.error("[MyWitness refresh after save]", err);
+    }
   }, [applyDemo, demoMode, refreshFromSupabase, user]);
 
   useEffect(() => {
@@ -1029,10 +1044,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [activeMinistrySession, applyDemo, demoMode, refresh]);
 
   const savePerson = useCallback(
-    async (person: Partial<Person> & { name: string }) => {
+    async (
+      person: Partial<Person> & { name: string },
+      opts?: { clientId?: string }
+    ) => {
       const now = new Date().toISOString();
       if (demoMode) {
         const data = loadDemoData();
+        const already =
+          !person.id && opts?.clientId
+            ? data.people.find((p) => p.id === opts.clientId)
+            : undefined;
+        if (already) return already;
         if (person.id) {
           data.people = data.people.map((p) =>
             p.id === person.id ? { ...p, ...person, updated_at: now } : p
@@ -1050,7 +1073,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           return data.people.find((p) => p.id === person.id)!;
         }
         const created: Person = {
-          id: crypto.randomUUID(),
+          id: opts?.clientId || crypto.randomUUID(),
           user_id: "demo-user",
           name: person.name,
           general_location: person.general_location ?? null,
@@ -1108,6 +1131,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const { data, error } = await supabase
         .from("people")
         .insert({
+          ...(opts?.clientId ? { id: opts.clientId } : {}),
           user_id: user!.id,
           name: person.name,
           general_location: person.general_location ?? null,
@@ -1124,9 +1148,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
         })
         .select()
         .single();
-      if (error) throw error;
+      if (error) {
+        // Same user action seen twice (retry / double tap): the person from
+        // the first attempt is the one — return it rather than failing.
+        if (error.code === "23505" && opts?.clientId) {
+          const { data: existing } = await supabase
+            .from("people")
+            .select("*")
+            .eq("id", opts.clientId)
+            .maybeSingle();
+          if (existing) return existing as Person;
+        }
+        throw error;
+      }
+      const createdPerson = data as Person;
+      // Show it immediately, so a slow or failed refresh can't make a saved
+      // person look missing (and tempt a second save).
+      setPeople((prev) =>
+        prev.some((p) => p.id === createdPerson.id) ? prev : [createdPerson, ...prev]
+      );
       await refresh();
-      return data as Person;
+      return createdPerson;
     },
     [applyDemo, demoMode, refresh, user]
   );
@@ -1444,8 +1486,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ReturnVisit,
         "id" | "user_id" | "created_at" | "updated_at" | "is_demo"
       >,
-      opts?: { allowDuplicate?: boolean }
+      opts?: { allowDuplicate?: boolean; clientId?: string }
     ) => {
+      if (demoMode && opts?.clientId) {
+        const repeat = loadDemoData().returnVisits.find((r) => r.id === opts.clientId);
+        if (repeat) return repeat;
+      }
       if (!opts?.allowDuplicate) {
         const dup = findDuplicateMinistryEvent(ministryEvents, {
           person_id: visit.person_id,
@@ -1475,7 +1521,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const data = loadDemoData();
         const created: ReturnVisit = {
           ...visit,
-          id: crypto.randomUUID(),
+          id: opts?.clientId || crypto.randomUUID(),
           user_id: "demo-user",
           is_demo: true,
           created_at: now,
@@ -1493,17 +1539,60 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("return_visits")
-        .insert({ ...visit, user_id: user!.id })
+        .insert({
+          ...(opts?.clientId ? { id: opts.clientId } : {}),
+          ...visit,
+          user_id: user!.id,
+        })
         .select()
         .single();
-      if (error) throw error;
-      await setReturnVisitStatusRemote(user!.id, supersedeIds, "rescheduled");
-      const created = data as ReturnVisit;
+      let created: ReturnVisit;
+      let inserted = true;
+      if (error) {
+        // The same user action seen twice (retry / double tap), or the slot
+        // is already taken: hand back the visit that exists instead of
+        // creating a second identical one.
+        if (error.code !== "23505") throw error;
+        const byId = opts?.clientId
+          ? (
+              await supabase
+                .from("return_visits")
+                .select("*")
+                .eq("id", opts.clientId)
+                .maybeSingle()
+            ).data
+          : null;
+        const { data: sameDay } = await supabase
+          .from("return_visits")
+          .select("*")
+          .eq("person_id", visit.person_id)
+          .eq("status", "planned")
+          .eq("scheduled_date", visit.scheduled_date);
+        const existing =
+          (byId as ReturnVisit | null) ??
+          findPlannedVisitInSlot(
+            (sameDay ?? []) as ReturnVisit[],
+            visit.person_id,
+            visit.scheduled_date,
+            visit.scheduled_time
+          );
+        if (!existing) throw error;
+        created = existing;
+        inserted = false;
+      } else {
+        created = data as ReturnVisit;
+      }
+      if (inserted) {
+        await setReturnVisitStatusRemote(user!.id, supersedeIds, "rescheduled");
+      }
       try {
         await upsertReturnVisitEventSupabase(user!.id, created);
       } catch (e) {
         console.warn("Calendar sync skipped (run migration 005?):", e);
       }
+      setReturnVisits((prev) =>
+        prev.some((r) => r.id === created.id) ? prev : [created, ...prev]
+      );
       await refresh();
       return created;
     },
@@ -1547,7 +1636,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (
       form: BibleStudyFormData,
       existingId?: string,
-      opts?: { allowDuplicate?: boolean }
+      opts?: { allowDuplicate?: boolean; clientId?: string }
     ) => {
       if (!form.person_id) throw new Error("Select a person for this study.");
       if (!form.publication.trim()) {
@@ -1567,11 +1656,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
       if (demoMode) {
-        const study = saveBibleStudyDemo(form, existingId);
+        const study = saveBibleStudyDemo(form, existingId, opts?.clientId);
         applyDemo(loadDemoData());
         return study;
       }
-      const study = await saveBibleStudyRemote(form, user!.id, existingId);
+      const study = await saveBibleStudyRemote(
+        form,
+        user!.id,
+        existingId,
+        opts?.clientId
+      );
       await refresh();
       return study;
     },
@@ -1733,17 +1827,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         person = await savePerson(personPatch);
       } else {
-        person = await savePerson({
-          name: form.person_name || "Unknown",
-          general_location: form.general_location || null,
-          location_lat: form.location_lat,
-          location_lng: form.location_lng,
-          first_met_date: form.conversation_date || todayISO(),
-          interest_level: form.interest_level || "unknown",
-          current_discussion_theme: form.main_topic || null,
-          key_questions: form.questions_asked || null,
-          preferred_contact_time: form.promised_follow_up_time || null,
-        });
+        // Ids are unique per table, so this form's one id can also name the
+        // new person: saving the same form again returns that person.
+        person = await savePerson(
+          {
+            name: form.person_name || "Unknown",
+            general_location: form.general_location || null,
+            location_lat: form.location_lat,
+            location_lng: form.location_lng,
+            first_met_date: form.conversation_date || todayISO(),
+            interest_level: form.interest_level || "unknown",
+            current_discussion_theme: form.main_topic || null,
+            key_questions: form.questions_asked || null,
+            preferred_contact_time: form.promised_follow_up_time || null,
+          },
+          { clientId: form.client_id }
+        );
       }
 
       // Person profile is the single source of truth.
@@ -2017,7 +2116,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           },
           // Same-slot duplicates were handled above; a different time on
           // the same day is a genuinely separate appointment.
-          { allowDuplicate: true }
+          { allowDuplicate: true, clientId: form.client_id }
         );
       }
 

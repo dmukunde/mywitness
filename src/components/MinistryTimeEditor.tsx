@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSingleFlight } from "@/hooks/useSingleFlight";
 import { Button, Input, Textarea } from "@/components/ui";
 import { formatDuration, todayISO } from "@/lib/utils";
 import { formatDbError } from "@/lib/db-errors";
@@ -35,6 +36,7 @@ export function MinistryTimeEditor({
   const [minutes, setMinutes] = useState(0);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const guard = useSingleFlight();
   const [error, setError] = useState<string | null>(null);
   // Tracks the `open` value we last reseeded local state for. Adjusting
   // state during render (rather than in an effect) on the false->true
@@ -126,7 +128,7 @@ export function MinistryTimeEditor({
           <Button
             className="flex-1"
             disabled={saving}
-            onClick={async () => {
+            onClick={() => guard(async () => {
               setSaving(true);
               setError(null);
               try {
@@ -148,7 +150,7 @@ export function MinistryTimeEditor({
               } finally {
                 setSaving(false);
               }
-            }}
+            })}
           >
             {saving ? "Saving…" : "Save time"}
           </Button>

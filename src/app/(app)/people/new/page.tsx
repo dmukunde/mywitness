@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
+import { useSingleFlight } from "@/hooks/useSingleFlight";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/lib/app-context";
 import {
@@ -20,6 +21,10 @@ import { formatDbError } from "@/lib/db-errors";
 
 export default function NewPersonPage() {
   const { savePerson, areas, findOrCreateArea } = useApp();
+  const guard = useSingleFlight();
+  // One id per form: saving again (retry or double tap) returns this same
+  // person instead of creating another.
+  const personId = useRef<string | null>(null);
   const router = useRouter();
   const [name, setName] = useState("");
   const [location, setLocation] = useState("");
@@ -35,7 +40,7 @@ export default function NewPersonPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSave = async () => {
+  const doSave = async () => {
     if (!name.trim()) {
       setError("Name is required.");
       return;
@@ -43,7 +48,9 @@ export default function NewPersonPage() {
     setSaving(true);
     try {
       const areaId = await findOrCreateArea(areaName);
-      const person = await savePerson({
+      personId.current ??= crypto.randomUUID();
+      const person = await savePerson(
+        {
         name: name.trim(),
         general_location: location || null,
         location_lat: coords?.lat ?? null,
@@ -56,13 +63,17 @@ export default function NewPersonPage() {
         current_discussion_theme: theme || null,
         key_questions: questions || null,
         private_notes: notes || null,
-      });
+        },
+        { clientId: personId.current }
+      );
       router.replace(`/people/${person.id}`);
     } catch (err) {
       setError(formatDbError("save person", err, "Could not save person."));
       setSaving(false);
     }
   };
+
+  const handleSave = () => guard(doSave);
 
   return (
     <div className="animate-fade-up space-y-4">

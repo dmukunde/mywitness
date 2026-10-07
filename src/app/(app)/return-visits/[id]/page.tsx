@@ -28,6 +28,7 @@ import { InterestBadge } from "@/components/InterestBadge";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
 import { PersonPhotoGallery } from "@/components/PersonPhotoGallery";
 import { isBefore, parseISO } from "date-fns";
+import { formatDbError } from "@/lib/db-errors";
 
 export default function ReturnVisitPrepPage() {
   const params = useParams<{ id: string }>();
@@ -102,14 +103,25 @@ export default function ReturnVisitPrepPage() {
 
   const reschedule = async () => {
     if (!date) return;
-    await updateReturnVisit(visit.id, {
-      scheduled_date: date,
-      scheduled_time: time || null,
-      preparation_notes: notes || visit.preparation_notes,
-      general_location: location || visit.general_location,
-      status: "planned",
-    });
-    setRescheduling(false);
+    try {
+      await updateReturnVisit(visit.id, {
+        scheduled_date: date,
+        scheduled_time: time || null,
+        preparation_notes: notes || visit.preparation_notes,
+        general_location: location || visit.general_location,
+        status: "planned",
+      });
+      setRescheduling(false);
+    } catch (err) {
+      // e.g. this person already has a visit at that date and time.
+      window.alert(
+        formatDbError(
+          "reschedule return visit",
+          err,
+          "Could not reschedule this visit."
+        )
+      );
+    }
   };
 
   return (

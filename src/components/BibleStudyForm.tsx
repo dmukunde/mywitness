@@ -18,6 +18,7 @@ import {
 } from "@/lib/types";
 import { parseLessonNumber } from "@/lib/bible-study";
 import { useState } from "react";
+import { useSingleFlight } from "@/hooks/useSingleFlight";
 
 type Props = {
   people: Person[];
@@ -43,6 +44,7 @@ export function BibleStudyForm({
     ...initial,
   });
   const [saving, setSaving] = useState(false);
+  const guard = useSingleFlight();
   const [error, setError] = useState<string | null>(null);
   const [dupConfirm, setDupConfirm] = useState(false);
 
@@ -51,7 +53,7 @@ export function BibleStudyForm({
     value: BibleStudyFormData[K]
   ) => setForm((prev) => ({ ...prev, [key]: value }));
 
-  const handleSubmit = async (allowDuplicate = false) => {
+  const doSubmit = async (allowDuplicate = false) => {
     setSaving(true);
     setError(null);
     try {
@@ -81,6 +83,9 @@ export function BibleStudyForm({
       setSaving(false);
     }
   };
+
+  const handleSubmit = (allowDuplicate = false) =>
+    guard(() => doSubmit(allowDuplicate));
 
   return (
     <div className="space-y-4">

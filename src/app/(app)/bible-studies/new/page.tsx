@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { Suspense, useRef } from "react";
 import { useApp } from "@/lib/app-context";
 import { BibleStudyForm } from "@/components/BibleStudyForm";
 import { PageHeader } from "@/components/ui";
@@ -12,6 +12,8 @@ function NewBibleStudyInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { people, returnVisits, saveBibleStudy } = useApp();
+  // One id per form: saving twice returns the same study, not a second one.
+  const studyId = useRef<string | null>(null);
 
   const personId = searchParams.get("personId") || "";
   const returnVisitId = searchParams.get("returnVisitId") || "";
@@ -66,7 +68,7 @@ function NewBibleStudyInner() {
           const study = await saveBibleStudy(
             { ...form, current_lesson_number: lessonNum },
             undefined,
-            opts
+            { ...opts, clientId: (studyId.current ??= crypto.randomUUID()) }
           );
           router.replace(`/bible-studies/${study.id}`);
         }}
