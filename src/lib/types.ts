@@ -350,6 +350,73 @@ export const EMPTY_STUDY_NOTE_FORM: StudyNoteFormData = {
   is_comment: false,
 };
 
+// ---------------------------------------------------------------------------
+// My Teaching Toolkit — a personal reference library (FAQs, scriptures,
+// conversation starters). Separate from Notes: no dates, contacts or visits.
+// ---------------------------------------------------------------------------
+
+export type ToolkitKind = "faq" | "scripture" | "starter";
+
+export const TOOLKIT_KINDS: ToolkitKind[] = ["faq", "scripture", "starter"];
+
+export const TOOLKIT_KIND_LABELS: Record<ToolkitKind, string> = {
+  faq: "FAQs",
+  scripture: "Scriptures",
+  starter: "Starters",
+};
+
+/** Singular names, used on forms and buttons. */
+export const TOOLKIT_KIND_SINGULAR: Record<ToolkitKind, string> = {
+  faq: "FAQ",
+  scripture: "Scripture",
+  starter: "Conversation starter",
+};
+
+export interface ToolkitEntry {
+  id: string;
+  user_id: string;
+  kind: ToolkitKind;
+  /** The question (FAQ), the topic (scripture) or the opener (starter). */
+  title: string;
+  explanation: string | null;
+  /** Bible references as typed — only the reference, never the text. */
+  scripture_refs: string[];
+  suggested_response: string | null;
+  follow_up_questions: string[];
+  personal_notes: string | null;
+  category: string | null;
+  is_favorite: boolean;
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ToolkitFormData {
+  kind: ToolkitKind;
+  title: string;
+  explanation: string;
+  /** One reference per line (or separated by semicolons). */
+  scripture_refs: string;
+  suggested_response: string;
+  /** One question per line. */
+  follow_up_questions: string;
+  personal_notes: string;
+  category: string;
+  is_favorite: boolean;
+}
+
+export const EMPTY_TOOLKIT_FORM: ToolkitFormData = {
+  kind: "faq",
+  title: "",
+  explanation: "",
+  scripture_refs: "",
+  suggested_response: "",
+  follow_up_questions: "",
+  personal_notes: "",
+  category: "",
+  is_favorite: false,
+};
+
 export interface BibleStudyFormData {
   person_id: string;
   publication: string;

@@ -36,8 +36,11 @@ import type {
   ScheduledMinistryEvent,
   StudyNote,
   StudyNoteFormData,
+  ToolkitEntry,
+  ToolkitFormData,
   UserSettings,
 } from "@/lib/types";
+import { toolkitPayload } from "@/lib/toolkit";
 import { emptyToNull, minutesBetween, parseScriptures, sanitizeDisplayName, todayISO } from "@/lib/utils";
 import {
   saveBibleStudyDemo,
@@ -84,6 +87,8 @@ interface AppContextValue {
   areas: Area[];
   personPhotos: PersonPhoto[];
   studyNotes: StudyNote[];
+  /** My Teaching Toolkit — the user's private FAQs, scriptures and starters. */
+  toolkitEntries: ToolkitEntry[];
   /** The one open (end_time null) ministry session for this user, if any. */
   activeMinistrySession: MinistrySession | null;
   refresh: () => Promise<void>;
@@ -124,6 +129,20 @@ interface AppContextValue {
   ) => Promise<StudyNote>;
   /** Soft-delete: hides the note from the notebook but never destroys it. */
   archiveStudyNote: (id: string) => Promise<void>;
+  /**
+   * Create (no existingId) or update a Toolkit entry. `clientId` makes a
+   * create safe to repeat: saving the same form twice returns the one entry.
+   */
+  saveToolkitEntry: (
+    form: ToolkitFormData,
+    existingId?: string,
+    opts?: { clientId?: string }
+  ) => Promise<ToolkitEntry>;
+  toggleToolkitFavorite: (id: string) => Promise<void>;
+  /** Stamps "recently used" when an entry is opened. Never throws. */
+  markToolkitEntryUsed: (id: string) => Promise<void>;
+  /** Permanently deletes an entry (callers confirm first). */
+  deleteToolkitEntry: (id: string) => Promise<void>;
   addPersonPhoto: (
     personId: string,
     photoPath: string,
@@ -219,6 +238,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [areas, setAreas] = useState<Area[]>([]);
   const [personPhotos, setPersonPhotos] = useState<PersonPhoto[]>([]);
   const [studyNotes, setStudyNotes] = useState<StudyNote[]>([]);
+  const [toolkitEntries, setToolkitEntries] = useState<ToolkitEntry[]>([]);
   const [scripturesMap, setScripturesMap] = useState<
     Record<string, { id: string; scripture_reference: string }[]>
   >({});
@@ -272,6 +292,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
     setStudySessions(data.studySessions || []);
     setStudyNotes((data.studyNotes || []).filter((n) => !n.archived_at));
+    setToolkitEntries(data.toolkitEntries || []);
     setMinistryEvents(
       (data.ministryEvents || []).map((e) => ({
         ...e,
@@ -311,6 +332,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         areasRes,
         photosRes,
         studyNotesRes,
+        toolkitRes,
       ] = await Promise.all([
         supabase.from("profiles").select("*").eq("id", uid).maybeSingle(),
         supabase
@@ -378,6 +400,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           .eq("user_id", uid)
           .is("archived_at", null)
           .order("note_date", { ascending: false }),
+        supabase
+          .from("toolkit_entries")
+          .select("*")
+          .eq("user_id", uid)
+          .order("title", { ascending: true }),
       ]);
 
       const firstError =
@@ -437,6 +464,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         studyNotesRes.error?.code === "42P01";
       if (studyNotesRes.error && !studyNotesTableMissing) {
         console.error("Study Notebook load error:", studyNotesRes.error);
+      }
+
+      // The Toolkit table appears with migration 014; until then the rest of
+      // the app must carry on, with an empty Toolkit.
+      const toolkitTableMissing =
+        toolkitRes.error?.message?.includes("does not exist") ||
+        toolkitRes.error?.message?.includes("schema cache") ||
+        toolkitRes.error?.code === "42P01";
+      if (toolkitRes.error && !toolkitTableMissing) {
+        console.error("Teaching Toolkit load error:", toolkitRes.error);
       }
 
       const scriptureByConv =
@@ -512,6 +549,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setScripturesMap(scriptureByConv);
       setStudyNotes(
         studyNotesTableMissing ? [] : (studyNotesRes.data as StudyNote[]) || []
+      );
+      setToolkitEntries(
+        toolkitTableMissing || toolkitRes.error
+          ? []
+          : ((toolkitRes.data as ToolkitEntry[]) || []).map((e) => ({
+              ...e,
+              scripture_refs: e.scripture_refs ?? [],
+              follow_up_questions: e.follow_up_questions ?? [],
+            }))
       );
     },
     []
@@ -1350,6 +1396,180 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await refresh();
     },
     [applyDemo, demoMode, refresh]
+  );
+
+  const saveToolkitEntry = useCallback(
+    async (
+      form: ToolkitFormData,
+      existingId?: string,
+      opts?: { clientId?: string }
+    ) => {
+      const payload = toolkitPayload(form);
+      if (!payload.title) throw new Error("Enter a title.");
+      const now = new Date().toISOString();
+
+      if (demoMode) {
+        const data = loadDemoData();
+        const list = data.toolkitEntries || [];
+        if (existingId) {
+          data.toolkitEntries = list.map((e) =>
+            e.id === existingId ? { ...e, ...payload, updated_at: now } : e
+          );
+          saveDemoData(data);
+          applyDemo(data);
+          return data.toolkitEntries.find((e) => e.id === existingId)!;
+        }
+        const repeat = opts?.clientId
+          ? list.find((e) => e.id === opts.clientId)
+          : undefined;
+        if (repeat) return repeat;
+        const created: ToolkitEntry = {
+          id: opts?.clientId || crypto.randomUUID(),
+          user_id: "demo-user",
+          last_used_at: null,
+          created_at: now,
+          updated_at: now,
+          ...payload,
+        };
+        data.toolkitEntries = [created, ...list];
+        saveDemoData(data);
+        applyDemo(data);
+        return created;
+      }
+
+      const supabase = createClient();
+      if (existingId) {
+        const { data, error } = await supabase
+          .from("toolkit_entries")
+          .update(payload)
+          .eq("id", existingId)
+          .select()
+          .single();
+        if (error) throw error;
+        const updated = data as ToolkitEntry;
+        setToolkitEntries((prev) =>
+          prev.map((e) => (e.id === updated.id ? updated : e))
+        );
+        return updated;
+      }
+      const { data, error } = await supabase
+        .from("toolkit_entries")
+        .insert({
+          ...(opts?.clientId ? { id: opts.clientId } : {}),
+          ...payload,
+          user_id: user!.id,
+        })
+        .select()
+        .single();
+      let created: ToolkitEntry;
+      if (error) {
+        // The same save seen twice (a double tap, a retry): that entry exists.
+        if (error.code !== "23505" || !opts?.clientId) throw error;
+        const { data: existing } = await supabase
+          .from("toolkit_entries")
+          .select("*")
+          .eq("id", opts.clientId)
+          .maybeSingle();
+        if (!existing) throw error;
+        created = existing as ToolkitEntry;
+      } else {
+        created = data as ToolkitEntry;
+      }
+      setToolkitEntries((prev) =>
+        prev.some((e) => e.id === created.id) ? prev : [created, ...prev]
+      );
+      return created;
+    },
+    [applyDemo, demoMode, user]
+  );
+
+  const patchToolkitEntry = useCallback(
+    async (id: string, patch: Partial<ToolkitEntry>) => {
+      if (demoMode) {
+        const data = loadDemoData();
+        data.toolkitEntries = (data.toolkitEntries || []).map((e) =>
+          e.id === id ? { ...e, ...patch } : e
+        );
+        saveDemoData(data);
+        applyDemo(data);
+        return;
+      }
+      const { error } = await createClient()
+        .from("toolkit_entries")
+        .update(patch)
+        .eq("id", id);
+      if (error) throw error;
+    },
+    [applyDemo, demoMode]
+  );
+
+  const toggleToolkitFavorite = useCallback(
+    async (id: string) => {
+      const entry = toolkitEntries.find((e) => e.id === id);
+      if (!entry) return;
+      const next = !entry.is_favorite;
+      // Show the star straight away; put it back if the save fails.
+      setToolkitEntries((prev) =>
+        prev.map((e) => (e.id === id ? { ...e, is_favorite: next } : e))
+      );
+      try {
+        await patchToolkitEntry(id, { is_favorite: next });
+      } catch (err) {
+        setToolkitEntries((prev) =>
+          prev.map((e) =>
+            e.id === id ? { ...e, is_favorite: entry.is_favorite } : e
+          )
+        );
+        throw err;
+      }
+    },
+    [patchToolkitEntry, toolkitEntries]
+  );
+
+  const markToolkitEntryUsed = useCallback(
+    async (id: string) => {
+      const entry = toolkitEntries.find((e) => e.id === id);
+      if (!entry) return;
+      // Opening an entry twice in a row is one use, not two writes.
+      if (
+        entry.last_used_at &&
+        Date.now() - Date.parse(entry.last_used_at) < 60_000
+      ) {
+        return;
+      }
+      const stamp = new Date().toISOString();
+      setToolkitEntries((prev) =>
+        prev.map((e) => (e.id === id ? { ...e, last_used_at: stamp } : e))
+      );
+      try {
+        await patchToolkitEntry(id, { last_used_at: stamp });
+      } catch (err) {
+        // "Recently used" is a convenience — never get in the way of reading.
+        console.warn("Could not record toolkit use:", err);
+      }
+    },
+    [patchToolkitEntry, toolkitEntries]
+  );
+
+  const deleteToolkitEntry = useCallback(
+    async (id: string) => {
+      if (demoMode) {
+        const data = loadDemoData();
+        data.toolkitEntries = (data.toolkitEntries || []).filter(
+          (e) => e.id !== id
+        );
+        saveDemoData(data);
+        applyDemo(data);
+        return;
+      }
+      const { error } = await createClient()
+        .from("toolkit_entries")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+      setToolkitEntries((prev) => prev.filter((e) => e.id !== id));
+    },
+    [applyDemo, demoMode]
   );
 
   const addPersonPhoto = useCallback(
@@ -2246,6 +2466,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     areas,
     personPhotos,
     studyNotes,
+    toolkitEntries,
     activeMinistrySession,
     refresh,
     enableDemoMode,
@@ -2264,6 +2485,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     saveArea,
     saveStudyNote,
     archiveStudyNote,
+    saveToolkitEntry,
+    toggleToolkitFavorite,
+    markToolkitEntryUsed,
+    deleteToolkitEntry,
     addPersonPhoto,
     updatePersonPhotoCaption,
     deletePersonPhoto,

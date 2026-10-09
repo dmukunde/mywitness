@@ -12,6 +12,7 @@ import type {
   ReturnVisit,
   ScheduledMinistryEvent,
   StudyNote,
+  ToolkitEntry,
 } from "@/lib/types";
 
 export const BACKUP_SCHEMA_VERSION = 1;
@@ -30,6 +31,7 @@ export interface BackupData {
   scheduled_ministry_events: ScheduledMinistryEvent[];
   person_photos: PersonPhoto[];
   study_notes: StudyNote[];
+  toolkit_entries: ToolkitEntry[];
 }
 
 export interface BackupEnvelope {
@@ -54,6 +56,7 @@ const TABLE_ORDER: (keyof BackupData)[] = [
   "scheduled_ministry_events",
   "person_photos",
   "study_notes",
+  "toolkit_entries",
 ];
 
 /**
@@ -62,7 +65,10 @@ const TABLE_ORDER: (keyof BackupData)[] = [
  * fail validation of an otherwise-valid older backup, so these default to
  * an empty array instead of being required.
  */
-const OPTIONAL_TABLES = new Set<keyof BackupData>(["study_notes"]);
+const OPTIONAL_TABLES = new Set<keyof BackupData>([
+  "study_notes",
+  "toolkit_entries",
+]);
 
 export type ValidationResult =
   | { ok: true; envelope: BackupEnvelope }
@@ -210,6 +216,7 @@ async function deleteAllMinistryData(supabase: SupabaseClient, userId: string) {
   // Children before parents.
   const tables = [
     "person_photos",
+    "toolkit_entries",
     "study_notes",
     "scheduled_ministry_events",
     "bible_study_sessions",

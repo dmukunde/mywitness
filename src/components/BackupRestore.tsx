@@ -30,6 +30,7 @@ const TABLE_LABELS: Record<string, string> = {
   bible_study_sessions: "Bible study sessions",
   scheduled_ministry_events: "Calendar events",
   person_photos: "Photo captions (not the images)",
+  toolkit_entries: "Teaching Toolkit entries",
 };
 
 async function downloadServerExport(): Promise<Record<string, unknown>> {

@@ -11,6 +11,7 @@ import type {
   ReturnVisit,
   ScheduledMinistryEvent,
   StudyNote,
+  ToolkitEntry,
 } from "./types";
 import { todayISO, getNextSaturdayAfternoon } from "./utils";
 
@@ -452,6 +453,61 @@ export function createDemoData() {
     },
   ];
 
+  const toolkitEntries: ToolkitEntry[] = [
+    {
+      id: "demo-toolkit-faq-busy",
+      user_id: DEMO_USER,
+      kind: "faq",
+      title: "What if someone says they are too busy?",
+      explanation: "Stay warm, keep it brief and leave the door open.",
+      scripture_refs: [],
+      suggested_response:
+        "I understand — I will not keep you. May I leave you one thought and come back at a better time?",
+      follow_up_questions: ["When is usually a quieter time for you?"],
+      personal_notes: "Works well in the early evening.",
+      category: "First visits",
+      is_favorite: true,
+      last_used_at: null,
+      created_at: lastWeek.toISOString(),
+      updated_at: lastWeek.toISOString(),
+    },
+    {
+      id: "demo-toolkit-scripture-hope",
+      user_id: DEMO_USER,
+      kind: "scripture",
+      title: "Hope for the future",
+      explanation: "A few scriptures I like to turn to when someone is discouraged.",
+      scripture_refs: ["Jeremiah 29:11", "Revelation 21:3, 4"],
+      suggested_response: null,
+      follow_up_questions: [],
+      personal_notes: null,
+      category: "Comfort",
+      is_favorite: false,
+      last_used_at: null,
+      created_at: lastWeek.toISOString(),
+      updated_at: lastWeek.toISOString(),
+    },
+    {
+      id: "demo-toolkit-starter-news",
+      user_id: DEMO_USER,
+      kind: "starter",
+      title: "What is one thing you would change in the world?",
+      explanation: "A friendly opener that invites people to share what matters to them.",
+      scripture_refs: ["Psalm 37:11"],
+      suggested_response: null,
+      follow_up_questions: [
+        "What do you think it would take?",
+        "Have you ever wondered if things will really get better?",
+      ],
+      personal_notes: null,
+      category: "Openers",
+      is_favorite: false,
+      last_used_at: null,
+      created_at: lastWeek.toISOString(),
+      updated_at: lastWeek.toISOString(),
+    },
+  ];
+
   return {
     people,
     conversations: [joanConversation, marcusConversation, maryConversation],
@@ -465,6 +521,7 @@ export function createDemoData() {
     areas,
     personPhotos,
     studyNotes,
+    toolkitEntries,
   };
 }
 
@@ -491,5 +548,6 @@ export function normalizeDemoData(raw: Partial<DemoData> | null | undefined): De
     areas: raw.areas || fresh.areas,
     personPhotos: raw.personPhotos || [],
     studyNotes: raw.studyNotes || [],
+    toolkitEntries: raw.toolkitEntries || fresh.toolkitEntries,
   };
 }
