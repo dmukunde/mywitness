@@ -1809,13 +1809,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (form: ConversationFormData) => {
       let person: Person;
       if (form.person_id) {
+        // Recording a conversation updates what it actually captured — an
+        // empty field must not blank what the person's profile already holds.
         const personPatch: Partial<Person> & { id: string; name: string } = {
           id: form.person_id,
           name: form.person_name || "Unknown",
-          general_location: form.general_location || null,
-          current_discussion_theme: form.main_topic || null,
-          key_questions: form.questions_asked || null,
         };
+        // Keys are left OUT (not set to undefined) when empty, so neither the
+        // database update nor the demo store's object merge can blank them.
+        if (form.general_location) personPatch.general_location = form.general_location;
+        if (form.main_topic) personPatch.current_discussion_theme = form.main_topic;
+        if (form.questions_asked) personPatch.key_questions = form.questions_asked;
         if (form.interest_level) {
           personPatch.interest_level = form.interest_level;
         }

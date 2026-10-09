@@ -14,7 +14,9 @@ import {
   LocationField,
   PageHeader,
   Select,
+  Sheet,
   Textarea,
+  TimeField,
   type LocationCoords,
 } from "@/components/ui";
 import { AreaField } from "@/components/AreaField";
@@ -51,6 +53,8 @@ export default function PersonProfilePage() {
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleTime, setScheduleTime] = useState("");
   const [scheduleTopic, setScheduleTopic] = useState("");
+  const [scheduleNotes, setScheduleNotes] = useState("");
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
   const guard = useSingleFlight();
   // One id per open dialog: confirming twice schedules one visit, not two.
   const scheduleId = useRef<string | null>(null);
@@ -156,7 +160,11 @@ export default function PersonProfilePage() {
   };
 
   const doSchedule = async () => {
-    if (!scheduleDate) return;
+    if (!scheduleDate) {
+      setScheduleError("Choose a date.");
+      return;
+    }
+    setScheduleError(null);
     scheduleId.current ??= crypto.randomUUID();
     const visit = {
       person_id: person.id,
@@ -172,7 +180,8 @@ export default function PersonProfilePage() {
       // enters here, never the previous conversation's stale one.
       next_planned_topic: scheduleTopic.trim() || null,
       general_location: person.general_location,
-      preparation_notes: null,
+      // Preparation for THIS visit, kept on the visit itself.
+      preparation_notes: scheduleNotes.trim() || null,
       completed_at: null,
     };
     try {
@@ -181,17 +190,20 @@ export default function PersonProfilePage() {
       const msg = err instanceof Error ? err.message : "";
       if (msg.startsWith("DUPLICATE_EVENT:")) {
         // Same person, same date and time is the same visit, not a second one.
-        window.alert(msg.replace("DUPLICATE_EVENT: ", ""));
-        setScheduling(false);
+        setScheduleError(msg.replace("DUPLICATE_EVENT: ", ""));
         return;
       }
-      throw err;
+      setScheduleError(
+        formatDbError("schedule visit", err, "Could not schedule this visit.")
+      );
+      return;
     }
     scheduleId.current = null;
     setScheduling(false);
     setScheduleDate("");
     setScheduleTime("");
     setScheduleTopic("");
+    setScheduleNotes("");
   };
   const handleSchedule = () => guard(doSchedule);
 
@@ -374,6 +386,9 @@ export default function PersonProfilePage() {
             <TopicBadge topic={nextVisit.topic_or_lesson} tone="amber" />
           </div>
         )}
+        {nextVisit?.preparation_notes && (
+          <Row label="Preparation" value={nextVisit.preparation_notes} />
+        )}
         {person.private_notes && (
           <div className="pt-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">
@@ -403,7 +418,11 @@ export default function PersonProfilePage() {
           variant="secondary"
           className="w-full"
           size="sm"
-          onClick={() => setScheduling(true)}
+          onClick={() => {
+            scheduleId.current = null;
+            setScheduleError(null);
+            setScheduling(true);
+          }}
         >
           Schedule visit
         </Button>
@@ -500,39 +519,51 @@ export default function PersonProfilePage() {
         onCancel={() => setArchiving(false)}
       />
 
-      <ConfirmDialog
+      <Sheet
         open={scheduling}
         title="Schedule return visit"
-        message="Choose a date and optional time for the next visit."
-        confirmLabel="Schedule"
-        onConfirm={handleSchedule}
-        onCancel={() => setScheduling(false)}
-      />
-
-      {scheduling && (
-        <div className="fixed inset-x-0 bottom-24 z-50 mx-auto max-w-lg space-y-2 px-4">
-          <Card className="space-y-3 shadow-lg">
-            <Input
-              label="Date"
-              type="date"
-              value={scheduleDate}
-              onChange={(e) => setScheduleDate(e.target.value)}
-            />
-            <Input
-              label="Time"
-              value={scheduleTime}
-              onChange={(e) => setScheduleTime(e.target.value)}
-              placeholder="Afternoon"
-            />
-            <Input
-              label="Next topic (optional)"
-              value={scheduleTopic}
-              onChange={(e) => setScheduleTopic(e.target.value)}
-              placeholder="What do you plan to discuss?"
-            />
-          </Card>
-        </div>
-      )}
+        subtitle={`Visit with ${person.name}`}
+        onClose={() => setScheduling(false)}
+      >
+        <Input
+          label="Date"
+          type="date"
+          value={scheduleDate}
+          onChange={(e) => setScheduleDate(e.target.value)}
+        />
+        <TimeField
+          label="Time"
+          value={scheduleTime}
+          onChange={setScheduleTime}
+        />
+        <Input
+          label="Next topic (optional)"
+          value={scheduleTopic}
+          onChange={(e) => setScheduleTopic(e.target.value)}
+          placeholder="What do you plan to discuss?"
+        />
+        <Textarea
+          label="Preparation notes (optional)"
+          value={scheduleNotes}
+          onChange={(e) => setScheduleNotes(e.target.value)}
+          placeholder="Anything to bring or get ready"
+        />
+        {scheduleError && (
+          <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {scheduleError}
+          </p>
+        )}
+        <Button className="w-full" onClick={handleSchedule}>
+          Schedule
+        </Button>
+        <Button
+          variant="ghost"
+          className="w-full"
+          onClick={() => setScheduling(false)}
+        >
+          Cancel
+        </Button>
+      </Sheet>
     </div>
   );
 }

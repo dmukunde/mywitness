@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { ExternalLink, Loader2, MapPin, MapPinCheck, MapPinOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, TextareaHTMLAttributes, SelectHTMLAttributes } from "react";
@@ -479,5 +480,48 @@ export function ConfirmDialog({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * A bottom sheet that is always on screen: it covers the page, scrolls on its
+ * own when the form is taller than the phone, and stays above the bottom nav.
+ * Forms that open "somewhere further down the page" are easy to miss on a
+ * phone — this is for short forms that must be seen the moment they open.
+ */
+export function Sheet({
+  open,
+  title,
+  subtitle,
+  onClose,
+  children,
+}: {
+  open: boolean;
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  if (!open) return null;
+  // Rendered on <body> so no page wrapper can trap it beneath the bottom nav.
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-stone-900/40 sm:items-center sm:p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="max-h-[92dvh] w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl sm:pb-5">
+        <h3 className="font-display text-xl font-semibold text-stone-900">
+          {title}
+        </h3>
+        {subtitle && <p className="mt-1 text-sm text-stone-500">{subtitle}</p>}
+        <div className="mt-4 space-y-3">{children}</div>
+      </div>
+    </div>,
+    document.body
   );
 }

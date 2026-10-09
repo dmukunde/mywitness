@@ -12,8 +12,12 @@ import {
   Input,
   LocationField,
   PageHeader,
+  Sheet,
   Textarea,
+  TimeField,
 } from "@/components/ui";
+import { useSingleFlight } from "@/hooks/useSingleFlight";
+import { visitNotesFor } from "@/lib/return-visit-completion";
 import {
   formatDisplayDate,
   todayISO,
@@ -21,6 +25,7 @@ import {
 import {
   ScriptureBadgeList,
   StatusBadge,
+  SuccessBanner,
   TopicBadge,
   statusKindFromReturnVisit,
 } from "@/components/badges";
@@ -36,6 +41,9 @@ export default function ReturnVisitPrepPage() {
   const { returnVisits, people, conversations, updateReturnVisit, deleteReturnVisit } =
     useApp();
   const visit = returnVisits.find((rv) => rv.id === params.id);
+  const guard = useSingleFlight();
+  const [notice, setNotice] = useState<string | null>(null);
+  const [rescheduleError, setRescheduleError] = useState<string | null>(null);
   const [rescheduling, setRescheduling] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -78,14 +86,6 @@ export default function ReturnVisitPrepPage() {
     isToday,
   });
 
-  const markCompleted = async () => {
-    await updateReturnVisit(visit.id, {
-      status: "completed",
-      completed_at: new Date().toISOString(),
-    });
-    router.replace("/return-visits");
-  };
-
   const confirmDelete = async () => {
     setDeleteBusy(true);
     setDeleteError(null);
@@ -101,20 +101,30 @@ export default function ReturnVisitPrepPage() {
     }
   };
 
-  const reschedule = async () => {
-    if (!date) return;
+  // Changes the one existing visit (and its calendar entry) in place - it
+  // never creates a second appointment.
+  const doReschedule = async () => {
+    if (!date) {
+      setRescheduleError("Choose a new date.");
+      return;
+    }
+    setRescheduleError(null);
     try {
       await updateReturnVisit(visit.id, {
         scheduled_date: date,
         scheduled_time: time || null,
-        preparation_notes: notes || visit.preparation_notes,
-        general_location: location || visit.general_location,
+        preparation_notes: notes.trim() || null,
+        general_location: location.trim() || null,
         status: "planned",
       });
       setRescheduling(false);
+      setNotice(
+        `Rescheduled to ${formatDisplayDate(date)}${time ? ` · ${time}` : ""}.`
+      );
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
       // e.g. this person already has a visit at that date and time.
-      window.alert(
+      setRescheduleError(
         formatDbError(
           "reschedule return visit",
           err,
@@ -123,6 +133,10 @@ export default function ReturnVisitPrepPage() {
       );
     }
   };
+  const reschedule = () => guard(doReschedule);
+
+  const completed = visit.status === "completed";
+  const visitNotes = visitNotesFor(visit, conversations);
 
   return (
     <div className="space-y-5 animate-fade-up">
@@ -139,6 +153,30 @@ export default function ReturnVisitPrepPage() {
         }
       />
 
+      {notice && (
+        <SuccessBanner onDismiss={() => setNotice(null)}>{notice}</SuccessBanner>
+      )}
+
+      {completed ? (
+        <Card className="space-y-4 ring-emerald-100/80">
+          <Block
+            label="Topic discussed"
+            value={visitNotes?.main_topic || visit.next_planned_topic}
+          />
+          <Block
+            label="Visit notes"
+            value={
+              visitNotes?.summary ||
+              (visitNotes ? null : "No notes were added for this visit.")
+            }
+          />
+          <Block
+            label="Preparation for this visit"
+            value={visit.preparation_notes}
+          />
+          <Block label="Location" value={visit.general_location} />
+        </Card>
+      ) : (
       <Card className="space-y-4 ring-violet-100/80">
         <Block
           label="Previous conversation summary"
@@ -176,7 +214,7 @@ export default function ReturnVisitPrepPage() {
           )}
         </div>
         <Block
-          label="Personal preparation notes"
+          label="Preparation notes"
           value={visit.preparation_notes || conversation?.next_visit_preparation}
         />
         <Block label="Location" value={visit.general_location} />
@@ -191,6 +229,7 @@ export default function ReturnVisitPrepPage() {
           </a>
         )}
       </Card>
+      )}
 
       {person?.phone_number && (
         <WhatsAppButton phoneNumber={person.phone_number} personName={person.name} />
@@ -201,9 +240,9 @@ export default function ReturnVisitPrepPage() {
       <div className="space-y-2">
         {visit.status === "planned" && (
           <>
-            <Button className="w-full" onClick={markCompleted}>
-              Mark completed
-            </Button>
+            <Link href={`/return-visits/${visit.id}/complete`} className="block">
+              <Button className="w-full">Mark completed</Button>
+            </Link>
             <Link
               href={`/conversations/record?personId=${visit.person_id}&returnVisitId=${visit.id}`}
               className="block"
@@ -228,6 +267,7 @@ export default function ReturnVisitPrepPage() {
                 setTime(visit.scheduled_time || "");
                 setNotes(visit.preparation_notes || "");
                 setLocation(visit.general_location || "");
+                setRescheduleError(null);
                 setRescheduling(true);
               }}
             >
@@ -256,40 +296,41 @@ export default function ReturnVisitPrepPage() {
         )}
       </div>
 
-      {rescheduling && (
-        <Card className="space-y-3">
-          <Input
-            label="New date"
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
-          <Input
-            label="Time"
-            value={time}
-            onChange={(e) => setTime(e.target.value)}
-          />
-          <LocationField
-            value={location}
-            onChange={setLocation}
-          />
-          <Textarea
-            label="Preparation notes"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
-          <Button className="w-full" onClick={reschedule}>
-            Save new schedule
-          </Button>
-          <Button
-            variant="ghost"
-            className="w-full"
-            onClick={() => setRescheduling(false)}
-          >
-            Cancel
-          </Button>
-        </Card>
-      )}
+      <Sheet
+        open={rescheduling}
+        title="Reschedule visit"
+        subtitle="This changes the existing visit. It will not add a second one."
+        onClose={() => setRescheduling(false)}
+      >
+        <Input
+          label="New date"
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+        />
+        <TimeField label="Time" value={time} onChange={setTime} />
+        <LocationField value={location} onChange={setLocation} />
+        <Textarea
+          label="Preparation notes"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+        {rescheduleError && (
+          <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {rescheduleError}
+          </p>
+        )}
+        <Button className="w-full" onClick={reschedule}>
+          Save new schedule
+        </Button>
+        <Button
+          variant="ghost"
+          className="w-full"
+          onClick={() => setRescheduling(false)}
+        >
+          Cancel
+        </Button>
+      </Sheet>
 
       <ConfirmDialog
         open={deleting}
