@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { useSingleFlight } from "@/hooks/useSingleFlight";
+import { useSamePersonPrompt } from "@/hooks/useSamePersonPrompt";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/lib/app-context";
 import {
@@ -22,6 +23,7 @@ import { formatDbError } from "@/lib/db-errors";
 export default function NewPersonPage() {
   const { savePerson, areas, findOrCreateArea } = useApp();
   const guard = useSingleFlight();
+  const { ask, dialog } = useSamePersonPrompt();
   // One id per form: saving again (retry or double tap) returns this same
   // person instead of creating another.
   const personId = useRef<string | null>(null);
@@ -45,9 +47,26 @@ export default function NewPersonPage() {
       setError("Name is required.");
       return;
     }
+    // Before creating anyone: is this a person who is already in the list?
+    const decision = await ask(name.trim());
+    if (decision.kind === "cancel") return;
     setSaving(true);
     try {
       const areaId = await findOrCreateArea(areaName);
+      if (decision.kind === "existing") {
+        // Same person: go to their profile instead of making a second one,
+        // adding only details they don't have yet (never overwriting any).
+        const existing = decision.person;
+        const fill: Partial<typeof existing> = {};
+        if (!existing.phone_number && phone) fill.phone_number = phone;
+        if (!existing.general_location && location) fill.general_location = location;
+        if (!existing.area_id && areaId) fill.area_id = areaId;
+        if (Object.keys(fill).length) {
+          await savePerson({ id: existing.id, name: existing.name, ...fill });
+        }
+        router.replace(`/people/${existing.id}`);
+        return;
+      }
       personId.current ??= crypto.randomUUID();
       const person = await savePerson(
         {
@@ -64,11 +83,18 @@ export default function NewPersonPage() {
         key_questions: questions || null,
         private_notes: notes || null,
         },
-        { clientId: personId.current }
+        {
+          clientId: personId.current,
+          confirmedDistinct: decision.kind === "different",
+        }
       );
       router.replace(`/people/${person.id}`);
     } catch (err) {
-      setError(formatDbError("save person", err, "Could not save person."));
+      setError(
+        err instanceof Error && err.message.startsWith("POSSIBLE_DUPLICATE_PERSON")
+          ? "You already have someone with this name. Check People first, or save again and choose \"different person\"."
+          : formatDbError("save person", err, "Could not save person.")
+      );
       setSaving(false);
     }
   };
@@ -144,6 +170,7 @@ export default function NewPersonPage() {
       <Button variant="ghost" className="w-full" onClick={() => router.back()}>
         Cancel
       </Button>
+      {dialog}
     </div>
   );
 }

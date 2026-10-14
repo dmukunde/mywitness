@@ -487,3 +487,60 @@ describe("a study's appointment", () => {
     expect(nextActivityForStudy(acts, "s1")?.scheduled_date).toBe("2026-10-14");
   });
 });
+
+describe("a return visit followed up by a Bible study", () => {
+  const overdueVisit = rv({ id: "lilian", scheduled_date: "2026-10-05" });
+  const state = (o: Partial<ScheduleInput>) =>
+    build({ returnVisits: [overdueVisit], ...o }).find(
+      (a) => a.return_visit_id === "lilian"
+    )?.state;
+
+  it("stops being overdue once the person became a Bible student", () => {
+    expect(state({})).toBe("overdue");
+    expect(
+      state({
+        bibleStudies: [
+          study({ next_study_date: null, created_at: "2026-10-07T09:00:00.000Z" }),
+        ],
+      })
+    ).toBe("completed");
+  });
+
+  it("stops being overdue once a study session was held with them", () => {
+    expect(
+      state({
+        bibleStudies: [study({ next_study_date: null })],
+        studySessions: [
+          session({ session_date: "2026-10-08", created_at: "2026-10-08T10:00:00.000Z" }),
+        ],
+      })
+    ).toBe("completed");
+  });
+
+  it("is not cleared by a study that began before the visit was due", () => {
+    expect(
+      state({
+        bibleStudies: [
+          study({ next_study_date: null, created_at: "2026-09-20T09:00:00.000Z" }),
+        ],
+      })
+    ).toBe("overdue");
+  });
+
+  it("is not cleared by someone else's study", () => {
+    expect(
+      state({
+        bibleStudies: [
+          study({
+            person_id: "p2",
+            next_study_date: null,
+            created_at: "2026-10-07T09:00:00.000Z",
+          }),
+        ],
+        studySessions: [
+          session({ person_id: "p2", session_date: "2026-10-08", created_at: "2026-10-08T10:00:00.000Z" }),
+        ],
+      })
+    ).toBe("overdue");
+  });
+});

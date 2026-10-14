@@ -87,10 +87,39 @@ export interface Person {
   private_notes: string | null;
   is_demo: boolean;
   archived_at: string | null;
+  /**
+   * Set when the user confirmed "this is a different person" for a name that
+   * already existed — the one thing that lets two same-named contacts exist.
+   */
+  distinct_confirmed?: boolean;
+  /** Set on a contact that was merged into another (hidden, restorable). */
+  merged_into_id?: string | null;
   created_at: string;
   updated_at: string;
   area?: Area | null;
   photos?: PersonPhoto[];
+}
+
+/** What a merge moved, so it can be undone (the person_merges table). */
+export interface PersonMergeLog {
+  id: string;
+  user_id: string;
+  kept_person_id: string;
+  merged_person_id: string;
+  moved: {
+    cancelled_visits: string[];
+    conversations: string[];
+    return_visits: string[];
+    bible_studies: string[];
+    bible_study_sessions: string[];
+    scheduled_ministry_events: string[];
+    person_photos: string[];
+    /** Fields the merge filled in on the kept contact, and their previous values. */
+    changed: string[];
+    prev: Record<string, unknown>;
+  };
+  created_at: string;
+  undone_at: string | null;
 }
 
 /** A neighbourhood/area a person can be grouped under — not tied to live GPS or maps for the MVP. */
@@ -528,6 +557,8 @@ export interface ConversationFormData {
    * inserting a duplicate.
    */
   client_id?: string;
+  /** The user was asked about a same-named contact and said it is a different person. */
+  person_confirmed_distinct?: boolean;
 }
 
 export const INTEREST_LABELS: Record<InterestLevel, string> = {

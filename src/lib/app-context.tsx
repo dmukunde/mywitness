@@ -42,7 +42,9 @@ import type {
 } from "@/lib/types";
 import { toolkitPayload } from "@/lib/toolkit";
 import { emptyToNull, minutesBetween, parseScriptures, sanitizeDisplayName, todayISO } from "@/lib/utils";
+import { mergePeopleInData, unmergePeopleInData } from "@/lib/person-merge";
 import {
+  dismissRemindersForVisits,
   saveBibleStudyDemo,
   saveBibleStudyRemote,
   saveStudySessionDemo,
@@ -167,9 +169,15 @@ interface AppContextValue {
    */
   savePerson: (
     person: Partial<Person> & { name: string },
-    opts?: { clientId?: string }
+    opts?: { clientId?: string; confirmedDistinct?: boolean }
   ) => Promise<Person>;
   archivePerson: (id: string) => Promise<void>;
+  /** Contacts that were archived (hidden, never deleted) and can be restored. */
+  archivedPeople: Person[];
+  restorePerson: (id: string) => Promise<void>;
+  /** Moves everything from `mergeId` onto `keepId`; returns the merge record (for undo). */
+  mergePeople: (keepId: string, mergeId: string) => Promise<string>;
+  undoMerge: (logId: string) => Promise<void>;
   updateReturnVisit: (
     id: string,
     patch: Partial<ReturnVisit>
@@ -239,6 +247,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [personPhotos, setPersonPhotos] = useState<PersonPhoto[]>([]);
   const [studyNotes, setStudyNotes] = useState<StudyNote[]>([]);
   const [toolkitEntries, setToolkitEntries] = useState<ToolkitEntry[]>([]);
+  const [archivedPeople, setArchivedPeople] = useState<Person[]>([]);
   const [scripturesMap, setScripturesMap] = useState<
     Record<string, { id: string; scripture_reference: string }[]>
   >({});
@@ -255,6 +264,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
             .filter((ph) => ph.person_id === p.id)
             .sort((a, b) => a.sort_order - b.sort_order),
         }))
+    );
+    setArchivedPeople(
+      data.people.filter((p) => p.archived_at && !p.merged_into_id)
     );
     setAreas(data.areas || []);
     setPersonPhotos(data.personPhotos || []);
@@ -333,6 +345,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         photosRes,
         studyNotesRes,
         toolkitRes,
+        archivedRes,
       ] = await Promise.all([
         supabase.from("profiles").select("*").eq("id", uid).maybeSingle(),
         supabase
@@ -405,6 +418,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           .select("*")
           .eq("user_id", uid)
           .order("title", { ascending: true }),
+        supabase
+          .from("people")
+          .select("*")
+          .eq("user_id", uid)
+          .not("archived_at", "is", null)
+          .order("archived_at", { ascending: false }),
       ]);
 
       const firstError =
@@ -549,6 +568,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setScripturesMap(scriptureByConv);
       setStudyNotes(
         studyNotesTableMissing ? [] : (studyNotesRes.data as StudyNote[]) || []
+      );
+      // Archived contacts, for the "Archived" list (a contact that was merged
+      // into another is restored by undoing the merge, not from here).
+      setArchivedPeople(
+        archivedRes.error
+          ? []
+          : ((archivedRes.data as Person[]) || []).filter((p) => !p.merged_into_id)
       );
       setToolkitEntries(
         toolkitTableMissing || toolkitRes.error
@@ -1092,7 +1118,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const savePerson = useCallback(
     async (
       person: Partial<Person> & { name: string },
-      opts?: { clientId?: string }
+      opts?: { clientId?: string; confirmedDistinct?: boolean }
     ) => {
       const now = new Date().toISOString();
       if (demoMode) {
@@ -1135,6 +1161,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           private_notes: person.private_notes ?? null,
           is_demo: true,
           archived_at: null,
+          distinct_confirmed: Boolean(opts?.confirmedDistinct),
           created_at: now,
           updated_at: now,
         };
@@ -1191,10 +1218,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
           current_discussion_theme: person.current_discussion_theme ?? null,
           key_questions: person.key_questions ?? null,
           private_notes: person.private_notes ?? null,
+          // The user said "this is a different person" for a name that exists.
+          ...(opts?.confirmedDistinct ? { distinct_confirmed: true } : {}),
         })
         .select()
         .single();
       if (error) {
+        // The database refuses an unconfirmed same-name contact (migration 015).
+        if (error.message?.includes("possible_duplicate_person")) {
+          throw new Error(
+            "POSSIBLE_DUPLICATE_PERSON: You already have someone with this name."
+          );
+        }
         // Same user action seen twice (retry / double tap): the person from
         // the first attempt is the one — return it rather than failing.
         if (error.code === "23505" && opts?.clientId) {
@@ -1236,6 +1271,67 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .from("people")
         .update({ archived_at: now })
         .eq("id", id);
+      if (error) throw error;
+      await refresh();
+    },
+    [applyDemo, demoMode, refresh]
+  );
+
+  const restorePerson = useCallback(
+    async (id: string) => {
+      const now = new Date().toISOString();
+      if (demoMode) {
+        const data = loadDemoData();
+        data.people = data.people.map((p) =>
+          p.id === id ? { ...p, archived_at: null, updated_at: now } : p
+        );
+        saveDemoData(data);
+        applyDemo(data);
+        return;
+      }
+      const { error } = await createClient()
+        .from("people")
+        .update({ archived_at: null })
+        .eq("id", id);
+      if (error) throw error;
+      await refresh();
+    },
+    [applyDemo, demoMode, refresh]
+  );
+
+  const mergePeople = useCallback(
+    async (keepId: string, mergeId: string) => {
+      if (demoMode) {
+        const data = loadDemoData();
+        const logId = mergePeopleInData(data, keepId, mergeId);
+        saveDemoData(data);
+        applyDemo(data);
+        return logId;
+      }
+      // One all-or-nothing step in the database (migration 015).
+      const { data, error } = await createClient().rpc("merge_people", {
+        p_keep: keepId,
+        p_merge: mergeId,
+      });
+      if (error) throw error;
+      await refresh();
+      return data as string;
+    },
+    [applyDemo, demoMode, refresh]
+  );
+
+  const undoMerge = useCallback(
+    async (logId: string) => {
+      if (demoMode) {
+        const data = loadDemoData();
+        unmergePeopleInData(data, logId);
+        saveDemoData(data);
+        applyDemo(data);
+        return;
+      }
+      const { error } = await createClient().rpc("unmerge_people", {
+        p_log: logId,
+      });
       if (error) throw error;
       await refresh();
     },
@@ -1830,26 +1926,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
         );
         const updated = data.returnVisits.find((rv) => rv.id === id);
         if (updated) syncReturnVisitEventDemo(data, updated);
+        if (patch.status && patch.status !== "planned") {
+          data.reminders = data.reminders.map((r) =>
+            r.return_visit_id === id && !r.dismissed_at
+              ? { ...r, dismissed_at: new Date().toISOString() }
+              : r
+          );
+        }
         saveDemoData(data);
         applyDemo(data);
         return;
       }
       const supabase = createClient();
-      const { data, error } = await supabase
-        .from("return_visits")
-        .update(patch)
-        .eq("id", id)
-        .select()
-        .single();
-      if (error) throw error;
+      // Show it everywhere at once (Home, Calendar, People) rather than after
+      // the next full reload; put it back if the save fails.
+      const before = returnVisits.find((rv) => rv.id === id);
+      setReturnVisits((prev) =>
+        prev.map((rv) => (rv.id === id ? { ...rv, ...patch } : rv))
+      );
       try {
-        await upsertReturnVisitEventSupabase(user!.id, data as ReturnVisit);
-      } catch (e) {
-        console.warn("Calendar sync skipped (run migration 005?):", e);
+        const { data, error } = await supabase
+          .from("return_visits")
+          .update(patch)
+          .eq("id", id)
+          .select()
+          .single();
+        if (error) throw error;
+        try {
+          await upsertReturnVisitEventSupabase(user!.id, data as ReturnVisit);
+        } catch (e) {
+          console.warn("Calendar sync skipped (run migration 005?):", e);
+        }
+        // No longer planned: any reminder about it is obsolete.
+        if (patch.status && patch.status !== "planned") {
+          await dismissRemindersForVisits([id]);
+        }
+      } catch (err) {
+        if (before) {
+          setReturnVisits((prev) => prev.map((rv) => (rv.id === id ? before : rv)));
+        }
+        throw err;
       }
       await refresh();
     },
-    [applyDemo, demoMode, refresh, user]
+    [applyDemo, demoMode, refresh, returnVisits, user]
   );
 
   const saveBibleStudy = useCallback(
@@ -1877,7 +1997,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       if (demoMode) {
         const study = saveBibleStudyDemo(form, existingId, opts?.clientId);
-        applyDemo(loadDemoData());
+        const data = loadDemoData();
+        if (!existingId) {
+          // Becoming a Bible student means the person has been followed up:
+          // visits that were due or overdue for them are resolved.
+          const ids = returnVisitsToComplete(
+            data.returnVisits,
+            study.person_id,
+            todayISO()
+          ).map((rv) => rv.id);
+          if (ids.length) setReturnVisitStatusDemo(data, ids, "completed");
+          saveDemoData(data);
+        }
+        applyDemo(data);
         return study;
       }
       const study = await saveBibleStudyRemote(
@@ -1886,24 +2018,64 @@ export function AppProvider({ children }: { children: ReactNode }) {
         existingId,
         opts?.clientId
       );
+      if (!existingId) {
+        try {
+          await setReturnVisitStatusRemote(
+            user!.id,
+            returnVisitsToComplete(
+              returnVisits,
+              study.person_id,
+              todayISO()
+            ).map((rv) => rv.id),
+            "completed"
+          );
+        } catch (e) {
+          // The study is saved; the schedule view also treats the visit as
+          // followed up, so this is a tidy-up, never a failure.
+          console.warn("Could not resolve earlier visits:", e);
+        }
+      }
       await refresh();
       return study;
     },
-    [applyDemo, demoMode, ministryEvents, refresh, user]
+    [applyDemo, demoMode, ministryEvents, refresh, returnVisits, user]
   );
 
   const saveStudySession = useCallback(
     async (form: BibleStudySessionFormData) => {
       if (demoMode) {
         const result = saveStudySessionDemo(form);
-        applyDemo(loadDemoData());
+        const data = loadDemoData();
+        const ids = returnVisitsToComplete(
+          data.returnVisits,
+          result.study.person_id,
+          result.session.session_date
+        ).map((rv) => rv.id);
+        if (ids.length) {
+          setReturnVisitStatusDemo(data, ids, "completed");
+          saveDemoData(data);
+        }
+        applyDemo(data);
         return result;
       }
       const result = await saveStudySessionRemote(form, user!.id);
+      try {
+        await setReturnVisitStatusRemote(
+          user!.id,
+          returnVisitsToComplete(
+            returnVisits,
+            result.study.person_id,
+            result.session.session_date
+          ).map((rv) => rv.id),
+          "completed"
+        );
+      } catch (e) {
+        console.warn("Could not resolve earlier visits:", e);
+      }
       await refresh();
       return result;
     },
-    [applyDemo, demoMode, refresh, user]
+    [applyDemo, demoMode, refresh, returnVisits, user]
   );
 
   const updateBibleStudyStatus = useCallback(
@@ -2001,16 +2173,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ? { ...e, status: "cancelled" as const, updated_at: now }
             : e
         );
+        data.reminders = data.reminders.map((r) =>
+          r.return_visit_id === id && !r.dismissed_at
+            ? { ...r, dismissed_at: now }
+            : r
+        );
         saveDemoData(data);
         applyDemo(data);
         return;
       }
       const supabase = createClient();
+      const before = returnVisits.find((rv) => rv.id === id);
+      setReturnVisits((prev) =>
+        prev.map((rv) => (rv.id === id ? { ...rv, status: "cancelled" } : rv))
+      );
       const { error } = await supabase
         .from("return_visits")
         .update({ status: "cancelled" })
         .eq("id", id);
-      if (error) throw error;
+      if (error) {
+        if (before) {
+          setReturnVisits((prev) => prev.map((rv) => (rv.id === id ? before : rv)));
+        }
+        throw error;
+      }
+      await dismissRemindersForVisits([id]);
       try {
         await supabase
           .from("scheduled_ministry_events")
@@ -2022,7 +2209,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       await refresh();
     },
-    [applyDemo, demoMode, refresh]
+    [applyDemo, demoMode, refresh, returnVisits]
   );
 
   const saveConversation = useCallback(
@@ -2065,7 +2252,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
             key_questions: form.questions_asked || null,
             preferred_contact_time: form.promised_follow_up_time || null,
           },
-          { clientId: form.client_id }
+          {
+            clientId: form.client_id,
+            confirmedDistinct: form.person_confirmed_distinct,
+          }
         );
       }
 
@@ -2426,18 +2616,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [demoMode, disableDemoMode]);
 
   const today = todayISO();
-  const activities = useMemo(
-    () =>
-      buildActivities({
-        events: ministryEvents,
-        returnVisits,
-        bibleStudies,
-        conversations,
-        studySessions,
-        today,
-      }),
-    [ministryEvents, returnVisits, bibleStudies, conversations, studySessions, today]
-  );
+  // An archived (or merged-away) contact's appointments must not linger on
+  // Home or Calendar. They are only hidden: restore the contact and they return.
+  const activities = useMemo(() => {
+    const active = new Set(people.map((p) => p.id));
+    const mine = <T extends { person_id: string | null }>(rows: T[]) =>
+      rows.filter((r) => !r.person_id || active.has(r.person_id));
+    return buildActivities({
+      events: mine(ministryEvents),
+      returnVisits: mine(returnVisits),
+      bibleStudies: mine(bibleStudies),
+      conversations,
+      studySessions,
+      today,
+    });
+  }, [
+    people,
+    ministryEvents,
+    returnVisits,
+    bibleStudies,
+    conversations,
+    studySessions,
+    today,
+  ]);
 
   const value: AppContextValue = {
     user,
@@ -2489,6 +2690,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toggleToolkitFavorite,
     markToolkitEntryUsed,
     deleteToolkitEntry,
+    archivedPeople,
+    restorePerson,
+    mergePeople,
+    undoMerge,
     addPersonPhoto,
     updatePersonPhotoCaption,
     deletePersonPhoto,

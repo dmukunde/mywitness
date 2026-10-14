@@ -23,7 +23,11 @@ interface ConversationFormProps {
   people?: Person[];
   uncertainFields?: string[];
   submitLabel?: string;
-  onSubmit: (form: ConversationFormData, schedule: boolean) => Promise<void>;
+  /** Resolve `false` to stay on the form (e.g. the user went back to edit the name). */
+  onSubmit: (
+    form: ConversationFormData,
+    schedule: boolean
+  ) => Promise<void | false>;
   onCancel: () => void;
 }
 
@@ -64,7 +68,7 @@ export function ConversationForm({
       // Always schedule when a follow-up date exists (core ministry workflow)
       const shouldSchedule =
         schedule || Boolean(form.promised_follow_up_date.trim());
-      await onSubmit(
+      const result = await onSubmit(
         {
           ...form,
           person_name:
@@ -75,6 +79,10 @@ export function ConversationForm({
         },
         shouldSchedule
       );
+      if (result === false) {
+        setSaving(false);
+        inFlight.current = false;
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save.");
       setSaving(false);

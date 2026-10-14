@@ -196,8 +196,22 @@ async function insertRows(
   { skipOnConflict }: { skipOnConflict: boolean }
 ) {
   for (const row of rows) {
-    const payload = { ...row, user_id: userId };
-    const { error } = await supabase.from(table).insert(payload);
+    let payload: Record<string, unknown> = { ...row, user_id: userId };
+    if (table === "people") {
+      // A restored contact is a faithful copy, not a new addition: it must not
+      // trip the "already have someone with this name" rule. A merge link can't
+      // be restored before its target exists, so the contact comes back as a
+      // plain archived one (restorable from People).
+      payload = { ...payload, distinct_confirmed: true, merged_into_id: null };
+    }
+    let { error } = await supabase.from(table).insert(payload);
+    if (error && table === "people" && /distinct_confirmed|merged_into_id/.test(error.message)) {
+      // Database without migration 015 yet: restore without the new columns.
+      const rest = { ...payload };
+      delete rest.distinct_confirmed;
+      delete rest.merged_into_id;
+      ({ error } = await supabase.from(table).insert(rest));
+    }
     if (!error) {
       report.inserted++;
       continue;

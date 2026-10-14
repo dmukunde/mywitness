@@ -2,6 +2,10 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSingleFlight } from "@/hooks/useSingleFlight";
+import {
+  applyPersonDecision,
+  useSamePersonPrompt,
+} from "@/hooks/useSamePersonPrompt";
 import { Suspense, useEffect, useRef, useState } from "react";
 import {
   Mic,
@@ -52,6 +56,7 @@ function RecordConversationInner() {
   const [saving, setSaving] = useState(false);
   const submissionId = useRef<string | null>(null);
   const guard = useSingleFlight();
+  const { ask, dialog } = useSamePersonPrompt();
   const processRef = useRef<(blob: Blob) => Promise<void>>(async () => {});
 
   const {
@@ -179,9 +184,20 @@ function RecordConversationInner() {
     setError(null);
   };
 
-  const onSubmit = async (data: ConversationFormData) => {
+  const onSubmit = async (typed: ConversationFormData) => {
     setSaving(true);
     try {
+      let data = typed;
+      // A new name: is this someone already in the list? Link to them rather
+      // than creating a second contact.
+      if (!data.person_id && data.person_name.trim()) {
+        const next = applyPersonDecision(data, await ask(data.person_name));
+        if (!next) {
+          setSaving(false);
+          return false as const;
+        }
+        data = next;
+      }
       submissionId.current ??= crypto.randomUUID();
       await saveConversation({
         ...data,
@@ -229,6 +245,7 @@ function RecordConversationInner() {
           onSubmit={onSubmit}
           onCancel={() => setReviewStep("summary")}
         />
+        {dialog}
       </div>
     );
   }
@@ -382,6 +399,7 @@ function RecordConversationInner() {
             Re-record
           </Button>
         </div>
+        {dialog}
       </div>
     );
   }

@@ -17,7 +17,9 @@ import {
   type Person,
 } from "@/lib/types";
 import { parseLessonNumber } from "@/lib/bible-study";
-import { useState } from "react";
+import { findPersonMatches } from "@/lib/person-match";
+import { MergeContactsSheet } from "@/components/MergeContactsSheet";
+import { useMemo, useState } from "react";
 import { useSingleFlight } from "@/hooks/useSingleFlight";
 
 type Props = {
@@ -87,6 +89,16 @@ export function BibleStudyForm({
   const handleSubmit = (allowDuplicate = false) =>
     guard(() => doSubmit(allowDuplicate));
 
+  // The chosen person may be one of two entries for the same someone (a visit
+  // under "Lilian", a study under "Lillian"): point that out, never decide it.
+  const [mergeWith, setMergeWith] = useState<string | null>(null);
+  const chosen = people.find((p) => p.id === form.person_id);
+  const twins = useMemo(
+    () =>
+      chosen ? findPersonMatches(people, chosen.name, { excludeId: chosen.id }) : [],
+    [people, chosen]
+  );
+
   return (
     <div className="space-y-4">
       <Select
@@ -101,6 +113,34 @@ export function BibleStudyForm({
           </option>
         ))}
       </Select>
+      {twins.length > 0 && chosen && (
+        <div className="space-y-2 rounded-xl bg-amber-50 px-3.5 py-3 text-sm text-amber-950 ring-1 ring-amber-200">
+          <p>
+            You also have{" "}
+            <span className="font-medium">
+              {twins.map((t) => t.person.name).join(", ")}
+            </span>
+            . Is that the same person as {chosen.name}? Merging keeps one profile
+            with all the history.
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => setMergeWith(twins[0].person.id)}
+          >
+            Review &amp; merge
+          </Button>
+        </div>
+      )}
+      {mergeWith && chosen && (
+        <MergeContactsSheet
+          keepId={chosen.id}
+          otherId={mergeWith}
+          allowSwap={false}
+          onClose={() => setMergeWith(null)}
+        />
+      )}
 
       <Input
         label="Study publication"

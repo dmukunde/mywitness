@@ -5,6 +5,10 @@ import { Suspense, useRef } from "react";
 import { ConversationForm } from "@/components/ConversationForm";
 import { PageHeader } from "@/components/ui";
 import { useApp } from "@/lib/app-context";
+import {
+  applyPersonDecision,
+  useSamePersonPrompt,
+} from "@/hooks/useSamePersonPrompt";
 import { EMPTY_CONVERSATION_FORM, type ConversationFormData } from "@/lib/types";
 import { todayISO } from "@/lib/utils";
 
@@ -13,6 +17,7 @@ function NewConversationInner() {
   const searchParams = useSearchParams();
   const { people, saveConversation } = useApp();
   const submissionId = useRef<string | null>(null);
+  const { ask, dialog } = useSamePersonPrompt();
   const personId = searchParams.get("personId") || "";
   const person = people.find((p) => p.id === personId);
 
@@ -28,7 +33,15 @@ function NewConversationInner() {
     session_id: "",
   };
 
-  const onSubmit = async (form: ConversationFormData) => {
+  const onSubmit = async (typed: ConversationFormData) => {
+    let form = typed;
+    // A new name: is this someone already in the list? Link to them rather
+    // than creating a second contact.
+    if (!form.person_id && form.person_name.trim()) {
+      const next = applyPersonDecision(form, await ask(form.person_name));
+      if (!next) return false;
+      form = next;
+    }
     // One id per form: saving again after a failure updates the same
     // conversation rather than inserting a duplicate.
     submissionId.current ??= crypto.randomUUID();
@@ -48,6 +61,7 @@ function NewConversationInner() {
         onSubmit={onSubmit}
         onCancel={() => router.back()}
       />
+      {dialog}
     </div>
   );
 }

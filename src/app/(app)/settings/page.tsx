@@ -15,6 +15,7 @@ import {
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { BackupRestore } from "@/components/BackupRestore";
 import { DuplicateCleanup } from "@/components/DuplicateCleanup";
+import { ContactHealth } from "@/components/ContactHealth";
 import { todayISO } from "@/lib/utils";
 import { formatDbError } from "@/lib/db-errors";
 
@@ -521,6 +522,7 @@ export default function SettingsPage() {
         <section>
           <SectionTitle title="Data health" />
           <DuplicateCleanup />
+          <ContactHealth />
         </section>
       )}
 

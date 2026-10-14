@@ -10,6 +10,7 @@ import type {
   Reminder,
   ReturnVisit,
   ScheduledMinistryEvent,
+  PersonMergeLog,
   StudyNote,
   ToolkitEntry,
 } from "./types";
@@ -522,6 +523,7 @@ export function createDemoData() {
     personPhotos,
     studyNotes,
     toolkitEntries,
+    personMerges: [] as PersonMergeLog[],
   };
 }
 
@@ -549,5 +551,6 @@ export function normalizeDemoData(raw: Partial<DemoData> | null | undefined): De
     personPhotos: raw.personPhotos || [],
     studyNotes: raw.studyNotes || [],
     toolkitEntries: raw.toolkitEntries || fresh.toolkitEntries,
+    personMerges: raw.personMerges || [],
   };
 }

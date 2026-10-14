@@ -276,6 +276,24 @@ export function setReturnVisitStatusDemo(
   return data;
 }
 
+/**
+ * A reminder about a visit that has since been completed, rescheduled or
+ * cancelled is obsolete — dismiss it so it can't linger on Home. Best effort:
+ * never block the change that made it obsolete.
+ */
+export async function dismissRemindersForVisits(ids: string[]) {
+  if (!ids.length) return;
+  try {
+    await createClient()
+      .from("reminders")
+      .update({ dismissed_at: new Date().toISOString() })
+      .in("return_visit_id", ids)
+      .is("dismissed_at", null);
+  } catch (e) {
+    console.warn("Could not dismiss obsolete reminders:", e);
+  }
+}
+
 export async function setReturnVisitStatusRemote(
   userId: string,
   ids: string[],
@@ -296,6 +314,7 @@ export async function setReturnVisitStatusRemote(
   for (const rv of (data ?? []) as ReturnVisit[]) {
     await safeSync(() => upsertReturnVisitEventSupabase(userId, rv));
   }
+  await dismissRemindersForVisits(((data ?? []) as ReturnVisit[]).map((r) => r.id));
 }
 
 export function buildStudyFromForm(

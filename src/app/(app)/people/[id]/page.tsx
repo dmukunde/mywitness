@@ -20,6 +20,7 @@ import {
   type LocationCoords,
 } from "@/components/ui";
 import { AreaField } from "@/components/AreaField";
+import { MergeContactsSheet } from "@/components/MergeContactsSheet";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
 import { PersonPhotoGallery } from "@/components/PersonPhotoGallery";
 import { InterestBadge, INTEREST_LEVEL_ORDER } from "@/components/InterestBadge";
@@ -41,6 +42,7 @@ export default function PersonProfilePage() {
     conversations,
     activities,
     bibleStudies,
+    returnVisits,
     areas,
     archivePerson,
     savePerson,
@@ -48,6 +50,7 @@ export default function PersonProfilePage() {
     findOrCreateArea,
   } = useApp();
   const [editing, setEditing] = useState(false);
+  const [merging, setMerging] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [scheduling, setScheduling] = useState(false);
   const [scheduleDate, setScheduleDate] = useState("");
@@ -70,6 +73,18 @@ export default function PersonProfilePage() {
   );
 
   const nextVisit = nextActivityForPerson(activities, params.id);
+
+  // Everything scheduled or held with this person, in one place. A visit that
+  // was replaced by a newer one (or cancelled) isn't history worth showing.
+  const personVisits = returnVisits
+    .filter(
+      (rv) =>
+        rv.person_id === params.id &&
+        rv.status !== "cancelled" &&
+        rv.status !== "rescheduled"
+    )
+    .sort((a, b) => b.scheduled_date.localeCompare(a.scheduled_date));
+  const personStudies = bibleStudies.filter((s) => s.person_id === params.id);
 
   const [form, setForm] = useState({
     name: "",
@@ -449,11 +464,86 @@ export default function PersonProfilePage() {
       )}
       <Button
         variant="ghost"
+        className="w-full"
+        onClick={() => setMerging(true)}
+      >
+        Merge with another contact
+      </Button>
+      <Button
+        variant="ghost"
         className="w-full text-rose-700"
         onClick={() => setArchiving(true)}
       >
         Archive Person
       </Button>
+
+      {(personVisits.length > 0 || personStudies.length > 0) && (
+        <section>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-stone-500">
+            Visits &amp; Bible studies
+          </h2>
+          <div className="space-y-2">
+            {personStudies.map((s) => (
+              <Link key={s.id} href={`/bible-studies/${s.id}`} className="block">
+                <Card className="ring-amber-100">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-medium text-stone-900">{s.publication}</p>
+                      <p className="mt-0.5 text-sm text-stone-500">
+                        {s.current_lesson || "Bible study"}
+                      </p>
+                    </div>
+                    <StatusBadge
+                      kind={
+                        s.status === "active"
+                          ? "study_active"
+                          : s.status === "paused"
+                            ? "study_paused"
+                            : "study_completed"
+                      }
+                    />
+                  </div>
+                </Card>
+              </Link>
+            ))}
+            {personVisits.map((rv) => {
+              const state =
+                rv.status === "completed"
+                  ? "completed"
+                  : (activities.find((a) => a.return_visit_id === rv.id)?.state ??
+                    "upcoming");
+              return (
+                <Link key={rv.id} href={`/return-visits/${rv.id}`} className="block">
+                  <Card>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-medium text-stone-900">
+                          {formatDisplayDate(rv.scheduled_date)}
+                          {rv.scheduled_time ? ` · ${rv.scheduled_time}` : ""}
+                        </p>
+                        {rv.next_planned_topic && (
+                          <p className="mt-0.5 truncate text-sm text-stone-500">
+                            {rv.next_planned_topic}
+                          </p>
+                        )}
+                      </div>
+                      <StatusBadge
+                        kind={
+                          state === "overdue"
+                            ? "overdue"
+                            : state === "completed"
+                              ? "completed"
+                              : "return_visit"
+                        }
+                      />
+                    </div>
+                  </Card>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <section>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-stone-500">
@@ -508,6 +598,14 @@ export default function PersonProfilePage() {
           </div>
         )}
       </section>
+
+      {merging && (
+        <MergeContactsSheet
+          keepId={person.id}
+          allowSwap={false}
+          onClose={() => setMerging(false)}
+        />
+      )}
 
       <ConfirmDialog
         open={archiving}

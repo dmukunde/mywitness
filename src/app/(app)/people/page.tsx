@@ -12,6 +12,7 @@ import {
   Select,
 } from "@/components/ui";
 import { InterestBadge, INTEREST_LEVEL_ORDER } from "@/components/InterestBadge";
+import { PeopleCare } from "@/components/PeopleCare";
 import { StatusBadge, TopicBadge } from "@/components/badges";
 import { formatDisplayDate } from "@/lib/utils";
 import { INTEREST_LABELS, type Person } from "@/lib/types";
@@ -158,6 +159,8 @@ export default function PeoplePage() {
           ))}
         </Select>
       </div>
+
+      {!query.trim() && <PeopleCare />}
 
       {filtered.length === 0 ? (
         <EmptyState

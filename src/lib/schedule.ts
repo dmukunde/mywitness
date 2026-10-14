@@ -19,6 +19,9 @@ import type {
  *   - it was explicitly completed (return visit / calendar event status)
  *   - a conversation was recorded with that person after it was scheduled,
  *     dated on/after its scheduled date (return visits)
+ *   - a Bible study was started with that person, or a study session held,
+ *     after the visit was scheduled and on/after its date (return visits) —
+ *     someone who has become a Bible student has plainly been followed up
  *   - a study session was recorded on/after its scheduled date (studies)
  * The last two mean data that got stuck before explicit resolution
  * existed heals itself without a migration.
@@ -62,18 +65,37 @@ function stateOf(
   return "overdue";
 }
 
-/** A later conversation with the same person, recorded after this visit was scheduled. */
+/**
+ * Later contact with the same person, recorded after this visit was
+ * scheduled: a conversation, a Bible study begun, or a study session held.
+ */
 function returnVisitFulfilled(
   rv: ReturnVisit,
-  conversations: Conversation[]
+  conversations: Conversation[],
+  bibleStudies: BibleStudy[],
+  studySessions: BibleStudySession[]
 ): boolean {
   const scheduledAt = Date.parse(rv.created_at);
-  return conversations.some(
-    (c) =>
-      c.person_id === rv.person_id &&
-      c.id !== rv.conversation_id &&
-      c.conversation_date >= rv.scheduled_date &&
-      Date.parse(c.created_at) > scheduledAt
+  return (
+    conversations.some(
+      (c) =>
+        c.person_id === rv.person_id &&
+        c.id !== rv.conversation_id &&
+        c.conversation_date >= rv.scheduled_date &&
+        Date.parse(c.created_at) > scheduledAt
+    ) ||
+    bibleStudies.some(
+      (st) =>
+        st.person_id === rv.person_id &&
+        Date.parse(st.created_at) > scheduledAt &&
+        st.created_at.slice(0, 10) >= rv.scheduled_date
+    ) ||
+    studySessions.some(
+      (ss) =>
+        ss.person_id === rv.person_id &&
+        ss.session_date >= rv.scheduled_date &&
+        Date.parse(ss.created_at) > scheduledAt
+    )
   );
 }
 
@@ -101,7 +123,10 @@ export function buildActivities(input: ScheduleInput): ScheduledActivity[] {
     const mirror = eventByVisit.get(rv.id);
     let status = mergeStatus(rv.status, mirror?.status);
     if (status === "cancelled" || status === "rescheduled") continue;
-    if (status === "planned" && returnVisitFulfilled(rv, conversations)) {
+    if (
+      status === "planned" &&
+      returnVisitFulfilled(rv, conversations, bibleStudies, studySessions)
+    ) {
       status = "completed";
     }
     byKey.set(`rv:${rv.id}`, {

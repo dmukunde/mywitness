@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Library, Mic, NotebookPen, NotebookText } from "lucide-react";
+import { OverdueFollowUps } from "@/components/OverdueFollowUps";
 import { useApp } from "@/lib/app-context";
 import { Button, Card, EmptyState, SectionTitle } from "@/components/ui";
 import { MinistryTimeEditor } from "@/components/MinistryTimeEditor";
@@ -41,7 +42,6 @@ function TodayInner() {
     saveDailyMinistryTime,
   } = useApp();
   const [editOpen, setEditOpen] = useState(false);
-  const [showAllOverdue, setShowAllOverdue] = useState(false);
   const [dismissedBanner, setDismissedBanner] = useState(false);
   const today = todayISO();
 
@@ -69,25 +69,6 @@ function TodayInner() {
     };
   }, [activities, returnVisits, bibleStudies]);
 
-  // Overdue is summarized, never rendered as full cards, so it can't push
-  // today's and upcoming activities down the page. Activities are already
-  // sorted by date, so the first items are the most overdue.
-  const overdueItems = useMemo(
-    () =>
-      activities
-        .filter((a) => a.state === "overdue")
-        .map((a) => ({
-          key: a.id,
-          href:
-            a.event_type === "bible_study"
-              ? `/bible-studies/${a.bible_study_id}`
-              : `/return-visits/${a.return_visit_id}`,
-          name: people.find((p) => p.id === a.person_id)?.name || "Person",
-          date: a.scheduled_date,
-          kind: a.event_type === "bible_study" ? "Bible study" : "Return visit",
-        })),
-    [activities, people]
-  );
   const dueToday = visitsFor("due");
   const studiesDueToday = studiesFor("due");
   const nextReturnVisit = visitsFor("upcoming")[0] || null;
@@ -409,47 +390,7 @@ function TodayInner() {
         </section>
       )}
 
-      {overdueItems.length > 0 && (
-        <section>
-          <SectionTitle title="Overdue" />
-          <Card className="bg-rose-50/60 ring-rose-200">
-            <div className="flex items-center justify-between gap-3">
-              <p className="font-medium text-rose-900">
-                {overdueItems.length} overdue follow-up
-                {overdueItems.length === 1 ? "" : "s"}
-              </p>
-              {overdueItems.length > 2 && (
-                <button
-                  type="button"
-                  className="shrink-0 text-sm font-semibold text-rose-800"
-                  onClick={() => setShowAllOverdue((v) => !v)}
-                >
-                  {showAllOverdue ? "Show less" : "View all"}
-                </button>
-              )}
-            </div>
-            <ul className="mt-1 divide-y divide-rose-100">
-              {(showAllOverdue ? overdueItems : overdueItems.slice(0, 2)).map(
-                (item) => (
-                  <li key={item.key}>
-                    <Link
-                      href={item.href}
-                      className="flex items-center justify-between gap-3 py-2 text-sm"
-                    >
-                      <span className="truncate font-medium text-stone-900">
-                        {item.name}
-                      </span>
-                      <span className="shrink-0 text-xs text-rose-800">
-                        {item.kind} · {formatDisplayDate(item.date)}
-                      </span>
-                    </Link>
-                  </li>
-                )
-              )}
-            </ul>
-          </Card>
-        </section>
-      )}
+      <OverdueFollowUps />
 
       <section>
         <SectionTitle title="Conversations today" />
