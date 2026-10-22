@@ -15,6 +15,7 @@ import {
   type ReminderRepeat,
 } from "@/lib/reminders";
 import { cn } from "@/lib/utils";
+import { format } from "date-fns";
 
 const CUSTOM = "custom";
 
@@ -34,9 +35,12 @@ export const chip = (active: boolean) =>
  */
 export function AddReminderSheet({
   personId,
+  initialDate,
   onClose,
 }: {
   personId?: string | null;
+  /** A day (yyyy-MM-dd) to open on, e.g. the day picked on the Calendar. */
+  initialDate?: string;
   onClose: () => void;
 }) {
   const { people, addPersonalReminder } = useApp();
@@ -49,8 +53,12 @@ export function AddReminderSheet({
   const choices = useMemo(() => whenChoices(now), [now]);
   const [text, setText] = useState("");
   const [person, setPerson] = useState(personId ?? "");
-  const [when, setWhen] = useState<string>(() => defaultWhen(now).id);
-  const [customDate, setCustomDate] = useState("");
+  // Opened from a future day on the Calendar: start on that day at 9 AM.
+  const futureDay = initialDate && initialDate > format(now, "yyyy-MM-dd") ? initialDate : "";
+  const [when, setWhen] = useState<string>(() =>
+    futureDay ? CUSTOM : defaultWhen(now).id
+  );
+  const [customDate, setCustomDate] = useState(futureDay);
   const [customTime, setCustomTime] = useState("09:00");
   const [repeat, setRepeat] = useState<ReminderRepeat>("none");
   const [error, setError] = useState<string | null>(null);

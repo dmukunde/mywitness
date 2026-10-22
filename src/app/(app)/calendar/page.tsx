@@ -39,8 +39,11 @@ import type {
   ScheduledMinistryEvent,
 } from "@/lib/types";
 import { findDuplicateMinistryEvent } from "@/lib/ministry-scheduling";
+import { AddReminderSheet } from "@/components/AddReminderSheet";
+import { ReminderList } from "@/components/ReminderList";
+import { sortOpen } from "@/lib/reminders";
 
-type Filter = "all" | "return_visit" | "bible_study";
+type Filter = "all" | "return_visit" | "bible_study" | "reminder";
 type ViewMode = "month" | "agenda";
 type ScheduleStep = null | "choose" | "form";
 
@@ -53,6 +56,7 @@ function CalendarInner() {
     createReturnVisit,
     saveBibleStudy,
     findDuplicateEvent,
+    personalReminders,
   } = useApp();
   const searchParams = useSearchParams();
   const today = todayISO();
@@ -95,11 +99,25 @@ function CalendarInner() {
     // Shared with People/Home/Bible Studies (lib/schedule.ts) — one
     // reconciled list instead of merging three sources here.
     let list: ScheduledMinistryEvent[] = activities;
+    if (filter === "reminder") return [];
     if (filter !== "all") {
       list = list.filter((e) => e.event_type === filter);
     }
     return list;
   }, [activities, filter]);
+
+  // Reminders sit on the calendar beside visits and studies, but stay their
+  // own thing (their own colour, their own Done / Snooze / Reschedule).
+  const [addingReminder, setAddingReminder] = useState(false);
+  const remindersByDay = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof sortOpen>>();
+    if (filter === "return_visit" || filter === "bible_study") return map;
+    for (const r of sortOpen(personalReminders)) {
+      const day = format(new Date(r.due_at), "yyyy-MM-dd");
+      map.set(day, [...(map.get(day) ?? []), r]);
+    }
+    return map;
+  }, [personalReminders, filter]);
 
   const monthDays = useMemo(() => {
     const start = startOfWeek(startOfMonth(cursor), { weekStartsOn: 0 });
@@ -115,6 +133,15 @@ function CalendarInner() {
   }, [events, today]);
 
   const selectedEvents = eventsOnDay(selectedDay);
+  const selectedReminders = remindersByDay.get(selectedDay) ?? [];
+  const agendaReminders = useMemo(
+    () =>
+      [...remindersByDay.entries()]
+        .filter(([day]) => day >= today)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .flatMap(([, list]) => list),
+    [remindersByDay, today]
+  );
   const isSelectedToday = selectedDay === today;
 
   const ministryByDate = useMemo(() => groupMinutesByDate(sessions), [sessions]);
@@ -349,6 +376,15 @@ function CalendarInner() {
           >
             Bible Study
           </Button>
+          <Button
+            className="w-full bg-orange-600 hover:bg-orange-700"
+            onClick={() => {
+              setScheduleStep(null);
+              setAddingReminder(true);
+            }}
+          >
+            Reminder
+          </Button>
           <Button variant="ghost" className="w-full" onClick={() => setScheduleStep(null)}>
             Cancel
           </Button>
@@ -453,6 +489,7 @@ function CalendarInner() {
             ["all", "All"],
             ["return_visit", "Return Visits"],
             ["bible_study", "Bible Studies"],
+            ["reminder", "Reminders"],
           ] as const
         ).map(([key, label]) => (
           <button
@@ -513,6 +550,7 @@ function CalendarInner() {
           <LegendDot className="bg-rose-500" label="Overdue" />
           <LegendDot className="bg-emerald-500" label="Completed" />
           <LegendDot className="bg-sky-500" label="Ministry time" />
+          <LegendDot className="bg-orange-500" label="Reminder" />
         </div>
       </Card>
 
@@ -562,6 +600,7 @@ function CalendarInner() {
                 (e) => e.event_type === "bible_study"
               );
               const hasMinistryTime = ministryByDate.has(iso);
+              const hasReminder = remindersByDay.has(iso);
               const selected = iso === selectedDay;
               const isToday = isSameDay(day, parseISO(today));
 
@@ -595,6 +634,14 @@ function CalendarInner() {
                           "h-1.5 w-1.5 rounded-full",
                           overdue ? "bg-rose-500" : "bg-amber-500",
                           selected && !overdue && "bg-amber-200"
+                        )}
+                      />
+                    )}
+                    {hasReminder && (
+                      <span
+                        className={cn(
+                          "h-1.5 w-1.5 rounded-full bg-orange-500",
+                          selected && "bg-orange-200"
                         )}
                       />
                     )}
@@ -638,7 +685,7 @@ function CalendarInner() {
                 )}
               </div>
             )}
-            {selectedEvents.length === 0 ? (
+            {selectedEvents.length === 0 && selectedReminders.length === 0 ? (
               <EmptyState
                 title={
                   isSelectedToday
@@ -646,7 +693,7 @@ function CalendarInner() {
                     : "Nothing scheduled"
                 }
               />
-            ) : (
+            ) : selectedEvents.length === 0 ? null : (
               <div className="space-y-2">
                 {selectedEvents.map((e) => (
                   <EventCard
@@ -659,11 +706,15 @@ function CalendarInner() {
                 ))}
               </div>
             )}
+            {/* Always mounted: it holds the Undo banner for these reminders. */}
+            <div className={selectedReminders.length ? "mt-2" : undefined}>
+              <ReminderList reminders={selectedReminders} />
+            </div>
           </section>
         </>
       ) : (
         <section className="space-y-2">
-          {agenda.length === 0 ? (
+          {agenda.length === 0 && agendaReminders.length === 0 ? (
             <EmptyState title="No upcoming appointments" />
           ) : (
             agenda.map((e) => (
@@ -676,7 +727,15 @@ function CalendarInner() {
               />
             ))
           )}
+          <ReminderList reminders={agendaReminders} />
         </section>
+      )}
+
+      {addingReminder && (
+        <AddReminderSheet
+          initialDate={selectedDay}
+          onClose={() => setAddingReminder(false)}
+        />
       )}
     </div>
   );
