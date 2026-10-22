@@ -53,3 +53,50 @@ self.addEventListener("fetch", (event) => {
     caches.match(request).then((cached) => cached || fetch(request))
   );
 });
+
+// ---- Push notifications (reminders) ----------------------------------------
+//
+// The server sends a small JSON payload: { title, body, tag, url }. Showing it
+// is all this does — no data is stored here. The same `tag` means a repeat of
+// the same reminder replaces the one already showing instead of stacking.
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { body: event.data ? event.data.text() : "" };
+  }
+  const title = payload.title || "MyWitness reminder";
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: payload.body || "",
+      tag: payload.tag || "mywitness-reminder",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      data: { url: payload.url || "/reminders" },
+      // Stays until the person deals with it (where the device allows).
+      requireInteraction: true,
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = new URL(
+    (event.notification.data && event.notification.data.url) || "/reminders",
+    self.location.origin
+  ).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
+      // Reuse the open app if there is one, otherwise open it.
+      for (const client of windows) {
+        if (new URL(client.url).origin === self.location.origin && "focus" in client) {
+          client.navigate(target).catch(() => undefined);
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(target);
+    })
+  );
+});

@@ -109,3 +109,30 @@ MyWitness ships a web app manifest and a minimal service worker (RC1) so it can 
 - **iPhone Safari:** open the site → Share → "Add to Home Screen".
 
 No extra Supabase/Vercel configuration is required for this — it works from static files served by Next.js. See `public/manifest.webmanifest` and `public/sw.js`.
+
+## Reminder notifications (push) — one-time setup
+
+Reminders work without any of this (they show on Home and the Reminders screen, alert while the app is open, and can be added to a calendar). To also get a notification **when the app is closed**, set up three things:
+
+1. **Run migrations `016`, `017` and `018`** in the Supabase SQL Editor, in that order (`016` reminders + devices tables, `017` contact merges carry reminders, `018` explicit Data API grants for every table — Supabase stops granting access to new tables automatically from 2026-10-30, so every new table migration must include its own `GRANT`s).
+2. **Create a key pair and a secret** and add all four to Vercel (Settings → Environment Variables) and `.env.local`, then redeploy:
+   - `npx web-push generate-vapid-keys` → `NEXT_PUBLIC_VAPID_PUBLIC_KEY` (public key) and `VAPID_PRIVATE_KEY` (private key — keep secret)
+   - `VAPID_SUBJECT` = `mailto:you@example.com`
+   - `CRON_SECRET` = any long random string (for example 40+ random characters)
+3. **Run the sender every minute.** Vercel's free plan only allows daily scheduled jobs, so use a Supabase scheduled job (Database → Extensions: enable `pg_cron` and `pg_net`), then in the SQL Editor:
+
+   ```sql
+   select cron.schedule(
+     'mywitness-reminders',
+     '* * * * *',
+     $$ select net.http_post(
+          url := 'https://mywitness.vercel.app/api/reminders/dispatch',
+          headers := jsonb_build_object('Authorization', 'Bearer <YOUR CRON_SECRET>')
+        ) $$
+   );
+   ```
+   (To stop it: `select cron.unschedule('mywitness-reminders');`)
+
+Then open **Reminders → Notifications → Turn on notifications**, and tap **Send a test** to confirm it reaches the device. On iPhone/iPad the app must first be added to the Home Screen (Share → Add to Home Screen).
+
+How it stays reliable: each due reminder is claimed in the database (`notified_at`) before it is sent, so overlapping runs can't send it twice; each notification also carries the reminder's id as its tag, so a device shows one notification per reminder; a device the push service reports as gone is removed automatically.

@@ -21,6 +21,9 @@ import {
 } from "@/components/ui";
 import { AreaField } from "@/components/AreaField";
 import { MergeContactsSheet } from "@/components/MergeContactsSheet";
+import { AddReminderSheet } from "@/components/AddReminderSheet";
+import { ReminderList } from "@/components/ReminderList";
+import { sortOpen } from "@/lib/reminders";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
 import { PersonPhotoGallery } from "@/components/PersonPhotoGallery";
 import { InterestBadge, INTEREST_LEVEL_ORDER } from "@/components/InterestBadge";
@@ -43,6 +46,7 @@ export default function PersonProfilePage() {
     activities,
     bibleStudies,
     returnVisits,
+    personalReminders,
     areas,
     archivePerson,
     savePerson,
@@ -51,6 +55,7 @@ export default function PersonProfilePage() {
   } = useApp();
   const [editing, setEditing] = useState(false);
   const [merging, setMerging] = useState(false);
+  const [addingReminder, setAddingReminder] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [scheduling, setScheduling] = useState(false);
   const [scheduleDate, setScheduleDate] = useState("");
@@ -85,6 +90,10 @@ export default function PersonProfilePage() {
     )
     .sort((a, b) => b.scheduled_date.localeCompare(a.scheduled_date));
   const personStudies = bibleStudies.filter((s) => s.person_id === params.id);
+  // Reminders about this person (their own thing — not visits or studies).
+  const personReminders = sortOpen(
+    personalReminders.filter((r) => r.person_id === params.id)
+  );
 
   const [form, setForm] = useState({
     name: "",
@@ -463,6 +472,21 @@ export default function PersonProfilePage() {
         </Link>
       )}
       <Button
+        variant="secondary"
+        className="w-full"
+        onClick={() => setAddingReminder(true)}
+      >
+        Add reminder
+      </Button>
+      <section>
+        {personReminders.length > 0 && (
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-stone-500">
+            Reminders
+          </h2>
+        )}
+        <ReminderList reminders={personReminders} showPerson={false} />
+      </section>
+      <Button
         variant="ghost"
         className="w-full"
         onClick={() => setMerging(true)}
@@ -598,6 +622,13 @@ export default function PersonProfilePage() {
           </div>
         )}
       </section>
+
+      {addingReminder && (
+        <AddReminderSheet
+          personId={person.id}
+          onClose={() => setAddingReminder(false)}
+        />
+      )}
 
       {merging && (
         <MergeContactsSheet

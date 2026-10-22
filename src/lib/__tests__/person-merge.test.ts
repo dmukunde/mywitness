@@ -5,6 +5,7 @@ import {
   unmergePeopleInData,
   type MergeableData,
 } from "@/lib/person-merge";
+import type { PersonalReminder } from "@/lib/reminders";
 import type {
   Conversation,
   Person,
@@ -218,5 +219,28 @@ describe("contactSummary", () => {
       studies: 0,
       photos: 0,
     });
+  });
+});
+
+describe("reminders and merging", () => {
+  const reminder = (id: string, person_id: string | null) =>
+    ({ id, person_id, text: "Call", due_at: "2026-10-25T16:00:00.000Z" }) as PersonalReminder;
+
+  it("moves reminders about the merged contact onto the kept one, and back on undo", () => {
+    const d = data({
+      personalReminders: [reminder("r-dupe", "dupe"), reminder("r-keep", "keep"), reminder("r-none", null)],
+    });
+    const log = mergePeopleInData(d, "keep", "dupe");
+    expect(d.personalReminders!.map((r) => [r.id, r.person_id])).toEqual([
+      ["r-dupe", "keep"],
+      ["r-keep", "keep"],
+      ["r-none", null],
+    ]);
+    unmergePeopleInData(d, log);
+    expect(d.personalReminders!.map((r) => [r.id, r.person_id])).toEqual([
+      ["r-dupe", "dupe"],
+      ["r-keep", "keep"],
+      ["r-none", null],
+    ]);
   });
 });

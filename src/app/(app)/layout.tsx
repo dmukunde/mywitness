@@ -4,6 +4,7 @@ import { BottomNav } from "@/components/BottomNav";
 import { DisplayNamePrompt } from "@/components/DisplayNamePrompt";
 import { useApp } from "@/lib/app-context";
 import { useReminders } from "@/hooks/useReminders";
+import { useReminderAlerts } from "@/hooks/useReminderAlerts";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
@@ -16,6 +17,7 @@ export default function AppShellLayout({
   const { user, loading, demoMode } = useApp();
   const router = useRouter();
   useReminders();
+  useReminderAlerts();
 
   useEffect(() => {
     if (loading) return;

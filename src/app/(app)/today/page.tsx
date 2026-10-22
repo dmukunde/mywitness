@@ -5,6 +5,7 @@ import { useMemo, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Library, Mic, NotebookPen, NotebookText } from "lucide-react";
 import { OverdueFollowUps } from "@/components/OverdueFollowUps";
+import { HomeReminders } from "@/components/HomeReminders";
 import { useApp } from "@/lib/app-context";
 import { Button, Card, EmptyState, SectionTitle } from "@/components/ui";
 import { MinistryTimeEditor } from "@/components/MinistryTimeEditor";
@@ -202,9 +203,11 @@ function TodayInner() {
         </div>
       </Card>
 
+      <HomeReminders />
+
       {reminders.length > 0 && (
         <section>
-          <SectionTitle title="Reminders" />
+          <SectionTitle title="Follow-up alerts" />
           <div className="space-y-2">
             {reminders.slice(0, 3).map((r) => (
               <Card

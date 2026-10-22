@@ -15,6 +15,7 @@ import type {
   ToolkitEntry,
 } from "./types";
 import { todayISO, getNextSaturdayAfternoon } from "./utils";
+import type { PersonalReminder } from "./reminders";
 
 const DEMO_USER = "demo-user";
 
@@ -524,6 +525,7 @@ export function createDemoData() {
     studyNotes,
     toolkitEntries,
     personMerges: [] as PersonMergeLog[],
+    personalReminders: [] as PersonalReminder[],
   };
 }
 
@@ -552,5 +554,6 @@ export function normalizeDemoData(raw: Partial<DemoData> | null | undefined): De
     studyNotes: raw.studyNotes || [],
     toolkitEntries: raw.toolkitEntries || fresh.toolkitEntries,
     personMerges: raw.personMerges || [],
+    personalReminders: raw.personalReminders || [],
   };
 }

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { PersonalReminder } from "@/lib/reminders";
 import type {
   Area,
   BibleStudy,
@@ -32,6 +33,7 @@ export interface BackupData {
   person_photos: PersonPhoto[];
   study_notes: StudyNote[];
   toolkit_entries: ToolkitEntry[];
+  personal_reminders: PersonalReminder[];
 }
 
 export interface BackupEnvelope {
@@ -57,6 +59,7 @@ const TABLE_ORDER: (keyof BackupData)[] = [
   "person_photos",
   "study_notes",
   "toolkit_entries",
+  "personal_reminders",
 ];
 
 /**
@@ -68,6 +71,7 @@ const TABLE_ORDER: (keyof BackupData)[] = [
 const OPTIONAL_TABLES = new Set<keyof BackupData>([
   "study_notes",
   "toolkit_entries",
+  "personal_reminders",
 ]);
 
 export type ValidationResult =
@@ -229,6 +233,7 @@ async function insertRows(
 async function deleteAllMinistryData(supabase: SupabaseClient, userId: string) {
   // Children before parents.
   const tables = [
+    "personal_reminders",
     "person_photos",
     "toolkit_entries",
     "study_notes",

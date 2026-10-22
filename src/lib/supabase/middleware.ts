@@ -35,7 +35,11 @@ export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const isAuthRoute =
     pathname.startsWith("/login") || pathname.startsWith("/auth");
+  // The reminder sender is called by a scheduler with no login; the route
+  // itself rejects anything without the scheduler's secret.
+  const isScheduler = pathname === "/api/reminders/dispatch";
   const isPublicAsset =
+    isScheduler ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
     pathname.includes(".");

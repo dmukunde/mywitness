@@ -31,6 +31,7 @@ const TABLE_LABELS: Record<string, string> = {
   scheduled_ministry_events: "Calendar events",
   person_photos: "Photo captions (not the images)",
   toolkit_entries: "Teaching Toolkit entries",
+  personal_reminders: "Personal reminders",
 };
 
 async function downloadServerExport(): Promise<Record<string, unknown>> {

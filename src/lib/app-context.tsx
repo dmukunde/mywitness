@@ -41,6 +41,12 @@ import type {
   UserSettings,
 } from "@/lib/types";
 import { toolkitPayload } from "@/lib/toolkit";
+import {
+  completionPatch,
+  isOpen,
+  type PersonalReminder,
+  type ReminderRepeat,
+} from "@/lib/reminders";
 import { emptyToNull, minutesBetween, parseScriptures, sanitizeDisplayName, todayISO } from "@/lib/utils";
 import { mergePeopleInData, unmergePeopleInData } from "@/lib/person-merge";
 import {
@@ -178,6 +184,30 @@ interface AppContextValue {
   /** Moves everything from `mergeId` onto `keepId`; returns the merge record (for undo). */
   mergePeople: (keepId: string, mergeId: string) => Promise<string>;
   undoMerge: (logId: string) => Promise<void>;
+  /**
+   * Personal reminders ("remind me to ..."): their own thing, separate from
+   * return visits and Bible studies, about a contact or about nothing in particular.
+   */
+  personalReminders: PersonalReminder[];
+  addPersonalReminder: (
+    input: {
+      text: string;
+      due_at: string;
+      person_id?: string | null;
+      repeat?: ReminderRepeat;
+    },
+    opts?: { clientId?: string }
+  ) => Promise<PersonalReminder>;
+  /** Change a reminder: its words, time, repeat, or done/dismissed state (also how Undo works). */
+  updatePersonalReminder: (
+    id: string,
+    patch: Partial<PersonalReminder>
+  ) => Promise<void>;
+  /**
+   * Mark a reminder done (a repeating one moves on to its next time).
+   * Resolves to the patch that puts it back, for Undo.
+   */
+  finishPersonalReminder: (id: string) => Promise<Partial<PersonalReminder>>;
   updateReturnVisit: (
     id: string,
     patch: Partial<ReturnVisit>
@@ -248,6 +278,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [studyNotes, setStudyNotes] = useState<StudyNote[]>([]);
   const [toolkitEntries, setToolkitEntries] = useState<ToolkitEntry[]>([]);
   const [archivedPeople, setArchivedPeople] = useState<Person[]>([]);
+  const [personalReminders, setPersonalReminders] = useState<PersonalReminder[]>([]);
   const [scripturesMap, setScripturesMap] = useState<
     Record<string, { id: string; scripture_reference: string }[]>
   >({});
@@ -267,6 +298,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
     setArchivedPeople(
       data.people.filter((p) => p.archived_at && !p.merged_into_id)
+    );
+    setPersonalReminders(
+      (data.personalReminders || []).filter((r) => !r.dismissed_at)
     );
     setAreas(data.areas || []);
     setPersonPhotos(data.personPhotos || []);
@@ -346,6 +380,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         studyNotesRes,
         toolkitRes,
         archivedRes,
+        personalRemindersRes,
       ] = await Promise.all([
         supabase.from("profiles").select("*").eq("id", uid).maybeSingle(),
         supabase
@@ -424,6 +459,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
           .eq("user_id", uid)
           .not("archived_at", "is", null)
           .order("archived_at", { ascending: false }),
+        // Open reminders, plus ones finished in the last 60 days (for history).
+        supabase
+          .from("personal_reminders")
+          .select("*")
+          .eq("user_id", uid)
+          .is("dismissed_at", null)
+          .or(
+            `done_at.is.null,done_at.gte.${new Date(
+              Date.now() - 60 * 86_400_000
+            ).toISOString()}`
+          )
+          .order("due_at", { ascending: true }),
       ]);
 
       const firstError =
@@ -575,6 +622,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         archivedRes.error
           ? []
           : ((archivedRes.data as Person[]) || []).filter((p) => !p.merged_into_id)
+      );
+      // Reminders appear with migration 016; until then the app carries on.
+      setPersonalReminders(
+        personalRemindersRes.error
+          ? []
+          : ((personalRemindersRes.data as PersonalReminder[]) || [])
       );
       setToolkitEntries(
         toolkitTableMissing || toolkitRes.error
@@ -1275,6 +1328,160 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await refresh();
     },
     [applyDemo, demoMode, refresh]
+  );
+
+  const addPersonalReminder = useCallback(
+    async (
+      input: {
+        text: string;
+        due_at: string;
+        person_id?: string | null;
+        repeat?: ReminderRepeat;
+      },
+      opts?: { clientId?: string }
+    ) => {
+      const text = input.text.trim();
+      if (!text) throw new Error("Write what you want to be reminded about.");
+      if (Number.isNaN(Date.parse(input.due_at))) {
+        throw new Error("Choose a date and time.");
+      }
+      const row = {
+        person_id: input.person_id || null,
+        text,
+        due_at: new Date(input.due_at).toISOString(),
+        repeat: input.repeat ?? "none",
+      };
+      const duplicate = new Error(
+        "DUPLICATE_REMINDER: You already have this reminder for that time."
+      );
+      const now = new Date().toISOString();
+
+      if (demoMode) {
+        const data = loadDemoData();
+        const list = data.personalReminders || [];
+        const repeat = opts?.clientId
+          ? list.find((r) => r.id === opts.clientId)
+          : undefined;
+        if (repeat) return repeat;
+        if (
+          list.some(
+            (r) =>
+              isOpen(r) &&
+              (r.person_id ?? "") === (row.person_id ?? "") &&
+              r.text.trim().toLowerCase() === text.toLowerCase() &&
+              Date.parse(r.due_at) === Date.parse(row.due_at)
+          )
+        ) {
+          throw duplicate;
+        }
+        const created: PersonalReminder = {
+          id: opts?.clientId || crypto.randomUUID(),
+          user_id: "demo-user",
+          ...row,
+          notified_at: null,
+          done_at: null,
+          dismissed_at: null,
+          last_done_at: null,
+          created_at: now,
+          updated_at: now,
+        };
+        data.personalReminders = [created, ...list];
+        saveDemoData(data);
+        applyDemo(data);
+        return created;
+      }
+
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("personal_reminders")
+        .insert({
+          ...(opts?.clientId ? { id: opts.clientId } : {}),
+          ...row,
+          user_id: user!.id,
+        })
+        .select()
+        .single();
+      let created: PersonalReminder;
+      if (error) {
+        if (error.code !== "23505") throw error;
+        // The same save seen twice returns that reminder; an identical one
+        // that already exists is reported as such.
+        const { data: existing } = opts?.clientId
+          ? await supabase
+              .from("personal_reminders")
+              .select("*")
+              .eq("id", opts.clientId)
+              .maybeSingle()
+          : { data: null };
+        if (!existing) throw duplicate;
+        created = existing as PersonalReminder;
+      } else {
+        created = data as PersonalReminder;
+      }
+      setPersonalReminders((prev) =>
+        prev.some((r) => r.id === created.id) ? prev : [created, ...prev]
+      );
+      return created;
+    },
+    [applyDemo, demoMode, user]
+  );
+
+  const updatePersonalReminder = useCallback(
+    async (id: string, patch: Partial<PersonalReminder>) => {
+      const before = personalReminders.find((r) => r.id === id);
+      // Moving it to a new time re-arms its notification (the database does
+      // the same; this keeps what is on screen in step).
+      const local: Partial<PersonalReminder> = {
+        ...patch,
+        ...(patch.due_at && patch.due_at !== before?.due_at ? { notified_at: null } : {}),
+      };
+      const apply = (r: PersonalReminder) => ({ ...r, ...local });
+      // Show it straight away; put it back if the save fails.
+      setPersonalReminders((prev) => prev.map((r) => (r.id === id ? apply(r) : r)));
+      try {
+        if (demoMode) {
+          const data = loadDemoData();
+          data.personalReminders = (data.personalReminders || []).map((r) =>
+            r.id === id ? { ...apply(r), updated_at: new Date().toISOString() } : r
+          );
+          saveDemoData(data);
+          return;
+        }
+        const { error } = await createClient()
+          .from("personal_reminders")
+          .update(patch)
+          .eq("id", id);
+        if (error) {
+          if (error.code === "23505") {
+            throw new Error(
+              "DUPLICATE_REMINDER: You already have this reminder for that time."
+            );
+          }
+          throw error;
+        }
+      } catch (err) {
+        if (before) {
+          setPersonalReminders((prev) => prev.map((r) => (r.id === id ? before : r)));
+        }
+        throw err;
+      }
+    },
+    [demoMode, personalReminders]
+  );
+
+  const finishPersonalReminder = useCallback(
+    async (id: string) => {
+      const r = personalReminders.find((x) => x.id === id);
+      if (!r) return {};
+      const undo: Partial<PersonalReminder> = {
+        done_at: r.done_at,
+        due_at: r.due_at,
+        last_done_at: r.last_done_at,
+      };
+      await updatePersonalReminder(id, completionPatch(r));
+      return undo;
+    },
+    [personalReminders, updatePersonalReminder]
   );
 
   const restorePerson = useCallback(
@@ -2694,6 +2901,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     restorePerson,
     mergePeople,
     undoMerge,
+    personalReminders,
+    addPersonalReminder,
+    updatePersonalReminder,
+    finishPersonalReminder,
     addPersonPhoto,
     updatePersonPhotoCaption,
     deletePersonPhoto,

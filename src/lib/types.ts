@@ -114,6 +114,8 @@ export interface PersonMergeLog {
     bible_study_sessions: string[];
     scheduled_ministry_events: string[];
     person_photos: string[];
+    /** Added with reminders; older merge records won't have it. */
+    personal_reminders?: string[];
     /** Fields the merge filled in on the kept contact, and their previous values. */
     changed: string[];
     prev: Record<string, unknown>;

@@ -50,6 +50,7 @@ export default function SettingsPage() {
     reminders,
     studyNotes,
     toolkitEntries,
+    personalReminders,
   } = useApp();
 
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -81,6 +82,7 @@ export default function SettingsPage() {
       reminders,
       study_notes: studyNotes,
       toolkit_entries: toolkitEntries,
+      personal_reminders: personalReminders,
       settings,
       disclaimer:
         "MyWitness is an independent personal organization tool designed to help individuals organize ministry notes, conversations, and return visits. It is not affiliated with, endorsed by, or produced by Jehovah’s Witnesses or any of their legal entities.",

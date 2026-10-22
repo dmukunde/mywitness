@@ -1,3 +1,4 @@
+import type { PersonalReminder } from "@/lib/reminders";
 import type {
   BibleStudy,
   BibleStudySession,
@@ -28,6 +29,8 @@ export interface MergeableData {
   ministryEvents: ScheduledMinistryEvent[];
   personPhotos: PersonPhoto[];
   personMerges?: PersonMergeLog[];
+  /** Reminders about the contact move with them. */
+  personalReminders?: PersonalReminder[];
 }
 
 /** Details copied onto the kept contact only where it has none of its own. */
@@ -128,6 +131,7 @@ export function mergePeopleInData(
     bible_study_sessions: ids(data.studySessions, mergeId),
     scheduled_ministry_events: ids(data.ministryEvents, mergeId),
     person_photos: ids(data.personPhotos, mergeId),
+    personal_reminders: ids(data.personalReminders ?? [], mergeId),
   };
   data.conversations = repoint(data.conversations, new Set(moved.conversations), keepId);
   data.returnVisits = repoint(data.returnVisits, new Set(moved.return_visits), keepId);
@@ -139,6 +143,13 @@ export function mergePeopleInData(
     keepId
   );
   data.personPhotos = repoint(data.personPhotos, new Set(moved.person_photos), keepId);
+  if (data.personalReminders) {
+    data.personalReminders = repoint(
+      data.personalReminders,
+      new Set(moved.personal_reminders),
+      keepId
+    );
+  }
 
   // Fill what the kept contact is missing; keep both sets of notes.
   const kv = { ...(keep as unknown as PersonRecord) };
@@ -211,6 +222,12 @@ export function unmergePeopleInData(
   data.studySessions = back(data.studySessions, moved.bible_study_sessions);
   data.ministryEvents = back(data.ministryEvents, moved.scheduled_ministry_events);
   data.personPhotos = back(data.personPhotos, moved.person_photos);
+  if (data.personalReminders) {
+    data.personalReminders = back(
+      data.personalReminders,
+      moved.personal_reminders ?? []
+    );
+  }
 
   const cancelled = new Set(moved.cancelled_visits);
   data.returnVisits = data.returnVisits.map((rv) =>
