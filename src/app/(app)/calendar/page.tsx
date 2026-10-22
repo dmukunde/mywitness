@@ -133,14 +133,23 @@ function CalendarInner() {
   }, [events, today]);
 
   const selectedEvents = eventsOnDay(selectedDay);
-  const selectedReminders = remindersByDay.get(selectedDay) ?? [];
+  // On today's view, reminders from earlier days that are still open show too:
+  // a reminder stays in sight until it is done or dismissed.
+  const selectedReminders = useMemo(() => {
+    const thatDay = remindersByDay.get(selectedDay) ?? [];
+    if (selectedDay !== today) return thatDay;
+    const earlier = [...remindersByDay.entries()]
+      .filter(([day]) => day < today)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .flatMap(([, list]) => list);
+    return [...earlier, ...thatDay];
+  }, [remindersByDay, selectedDay, today]);
   const agendaReminders = useMemo(
     () =>
       [...remindersByDay.entries()]
-        .filter(([day]) => day >= today)
         .sort(([a], [b]) => a.localeCompare(b))
         .flatMap(([, list]) => list),
-    [remindersByDay, today]
+    [remindersByDay]
   );
   const isSelectedToday = selectedDay === today;
 
@@ -510,6 +519,12 @@ function CalendarInner() {
             {label}
           </button>
         ))}
+        <Link
+          href="/reminders"
+          className="rounded-full px-3 py-1.5 text-xs font-semibold text-orange-800 underline decoration-orange-200 underline-offset-2"
+        >
+          All reminders
+        </Link>
       </div>
 
       <div className="flex gap-2">
