@@ -244,3 +244,38 @@ describe("reminders and merging", () => {
     ]);
   });
 });
+
+describe("ministry days and merging", () => {
+  it("gives the kept contact the days of both, and undo puts them back", () => {
+    const d = data({
+      people: [
+        person({ id: "keep", ministry_days: ["wed"] }),
+        person({ id: "dupe", ministry_days: ["wed", "sat"] }),
+      ],
+    });
+    const log = mergePeopleInData(d, "keep", "dupe");
+    expect(d.people.find((p) => p.id === "keep")!.ministry_days).toEqual(["wed", "sat"]);
+
+    unmergePeopleInData(d, log);
+    expect(d.people.find((p) => p.id === "keep")!.ministry_days).toEqual(["wed"]);
+    expect(d.people.find((p) => p.id === "dupe")!.ministry_days).toEqual(["wed", "sat"]);
+  });
+
+  it("leaves the days alone when the merged contact adds none", () => {
+    const d = data({
+      people: [
+        person({ id: "keep", ministry_days: ["fri", "sat"] }),
+        person({ id: "dupe", ministry_days: ["sat"] }),
+      ],
+    });
+    mergePeopleInData(d, "keep", "dupe");
+    expect(d.people.find((p) => p.id === "keep")!.ministry_days).toEqual(["fri", "sat"]);
+  });
+
+  it("works for contacts that have no days at all (before the migration)", () => {
+    const d = data();
+    const log = mergePeopleInData(d, "keep", "dupe");
+    expect(d.people.find((p) => p.id === "keep")!.ministry_days).toBeUndefined();
+    unmergePeopleInData(d, log);
+  });
+});

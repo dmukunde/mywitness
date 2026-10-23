@@ -1,3 +1,5 @@
+import type { MinistryDay } from "@/lib/ministry-days";
+
 export type InterestLevel =
   | "unknown"
   | "very_low"
@@ -77,6 +79,12 @@ export interface Person {
   location_lat: number | null;
   location_lng: number | null;
   area_id: string | null;
+  /**
+   * Days of the week the user usually visits or meets this person (migration
+   * 019). Only for organising People: never an appointment or a notification.
+   * Absent on a database that has not had the migration yet.
+   */
+  ministry_days?: MinistryDay[];
   /** Raw as entered — normalized only at display/link time (see lib/phone.ts). */
   phone_number: string | null;
   preferred_contact_time: string | null;

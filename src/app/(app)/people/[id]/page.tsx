@@ -20,6 +20,8 @@ import {
   type LocationCoords,
 } from "@/components/ui";
 import { AreaField } from "@/components/AreaField";
+import { MinistryDayPicker } from "@/components/MinistryDayPicker";
+import { daysOf, describeDays, sameDays, type MinistryDay } from "@/lib/ministry-days";
 import { MergeContactsSheet } from "@/components/MergeContactsSheet";
 import { AddReminderSheet } from "@/components/AddReminderSheet";
 import { ReminderList } from "@/components/ReminderList";
@@ -108,6 +110,7 @@ export default function PersonProfilePage() {
   });
   const [coords, setCoords] = useState<LocationCoords | null>(null);
   const [areaName, setAreaName] = useState("");
+  const [days, setDays] = useState<MinistryDay[]>([]);
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -142,6 +145,7 @@ export default function PersonProfilePage() {
         : null
     );
     setAreaName(person.area?.name || "");
+    setDays(daysOf(person));
     setEditError(null);
     setEditing(true);
   };
@@ -162,6 +166,9 @@ export default function PersonProfilePage() {
         location_lat: coords?.lat ?? null,
         location_lng: coords?.lng ?? null,
         area_id: areaId,
+        // Only sent when changed, so editing someone still works on a database
+        // that has not had migration 019 yet.
+        ...(sameDays(days, person.ministry_days ?? []) ? {} : { ministry_days: days }),
         phone_number: form.phone_number || null,
         preferred_contact_time: form.preferred_contact_time || null,
         first_met_date: form.first_met_date || null,
@@ -247,6 +254,7 @@ export default function PersonProfilePage() {
           onCoordsChange={setCoords}
         />
         <AreaField value={areaName} onChange={setAreaName} areas={areas} />
+        <MinistryDayPicker value={days} onChange={setDays} />
         <Input
           label="Phone number"
           type="tel"
@@ -357,6 +365,10 @@ export default function PersonProfilePage() {
         ) : (
           <Row label="Area" value={null} />
         )}
+        <Row
+          label="Ministry days"
+          value={daysOf(person).length ? describeDays(daysOf(person)) : null}
+        />
         <Row label="Preferred time" value={person.preferred_contact_time} />
         <Row
           label="First met"

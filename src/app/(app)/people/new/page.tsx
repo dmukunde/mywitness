@@ -15,6 +15,8 @@ import {
   type LocationCoords,
 } from "@/components/ui";
 import { AreaField } from "@/components/AreaField";
+import { MinistryDayPicker } from "@/components/MinistryDayPicker";
+import { daysOf, type MinistryDay } from "@/lib/ministry-days";
 import { INTEREST_LEVEL_ORDER } from "@/components/InterestBadge";
 import { INTEREST_LABELS, type InterestLevel } from "@/lib/types";
 import { todayISO } from "@/lib/utils";
@@ -32,6 +34,7 @@ export default function NewPersonPage() {
   const [location, setLocation] = useState("");
   const [coords, setCoords] = useState<LocationCoords | null>(null);
   const [areaName, setAreaName] = useState("");
+  const [days, setDays] = useState<MinistryDay[]>([]);
   const [phone, setPhone] = useState("");
   const [preferredTime, setPreferredTime] = useState("");
   const [firstMet, setFirstMet] = useState(todayISO());
@@ -61,6 +64,7 @@ export default function NewPersonPage() {
         if (!existing.phone_number && phone) fill.phone_number = phone;
         if (!existing.general_location && location) fill.general_location = location;
         if (!existing.area_id && areaId) fill.area_id = areaId;
+        if (days.length && daysOf(existing).length === 0) fill.ministry_days = days;
         if (Object.keys(fill).length) {
           await savePerson({ id: existing.id, name: existing.name, ...fill });
         }
@@ -75,6 +79,7 @@ export default function NewPersonPage() {
         location_lat: coords?.lat ?? null,
         location_lng: coords?.lng ?? null,
         area_id: areaId,
+        ministry_days: days,
         phone_number: phone || null,
         preferred_contact_time: preferredTime || null,
         first_met_date: firstMet || todayISO(),
@@ -113,6 +118,7 @@ export default function NewPersonPage() {
         placeholder="Near the pharmacy"
       />
       <AreaField value={areaName} onChange={setAreaName} areas={areas} />
+      <MinistryDayPicker value={days} onChange={setDays} />
       <Input
         label="Phone number"
         type="tel"

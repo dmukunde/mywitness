@@ -316,8 +316,13 @@ export default function SettingsPage() {
       <section>
         <SectionTitle title="Reminders" />
         <Card className="space-y-3">
+          <p className="text-sm text-stone-600">
+            Your phone only buzzes for reminders you set yourself, at the date
+            and time you chose. Visits, studies and overdue follow-ups stay
+            visible in the app without sending notifications.
+          </p>
           <label className="flex items-center justify-between gap-3 text-sm">
-            <span>Browser notifications</span>
+            <span>Notify me for my reminders</span>
             <input
               type="checkbox"
               checked={!!settings?.browser_notifications_enabled}
@@ -329,17 +334,6 @@ export default function SettingsPage() {
               className="h-4 w-4"
             />
           </label>
-          <Input
-            label="Remind me minutes before a visit"
-            type="number"
-            min={5}
-            value={settings?.reminder_minutes_before ?? 60}
-            onChange={(e) =>
-              updateSettings({
-                reminder_minutes_before: Number(e.target.value) || 60,
-              })
-            }
-          />
           <Button variant="secondary" className="w-full" onClick={requestNotifications}>
             Request notification permission
           </Button>

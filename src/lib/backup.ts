@@ -209,11 +209,16 @@ async function insertRows(
       payload = { ...payload, distinct_confirmed: true, merged_into_id: null };
     }
     let { error } = await supabase.from(table).insert(payload);
-    if (error && table === "people" && /distinct_confirmed|merged_into_id/.test(error.message)) {
-      // Database without migration 015 yet: restore without the new columns.
+    if (
+      error &&
+      table === "people" &&
+      /distinct_confirmed|merged_into_id|ministry_days/.test(error.message)
+    ) {
+      // Database without migration 015 or 019 yet: restore without the new columns.
       const rest = { ...payload };
       delete rest.distinct_confirmed;
       delete rest.merged_into_id;
+      delete rest.ministry_days;
       ({ error } = await supabase.from(table).insert(rest));
     }
     if (!error) {

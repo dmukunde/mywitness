@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -61,6 +62,7 @@ import {
   upsertReturnVisitEventSupabase,
 } from "@/lib/ministry-api";
 import { findDuplicateMinistryEvent } from "@/lib/ministry-scheduling";
+import type { MinistryDay } from "@/lib/ministry-days";
 import {
   buildActivities,
   findPlannedVisitInSlot,
@@ -178,6 +180,11 @@ interface AppContextValue {
     opts?: { clientId?: string; confirmedDistinct?: boolean }
   ) => Promise<Person>;
   archivePerson: (id: string) => Promise<void>;
+  /**
+   * Sets the days of the week the user usually visits this person. Updates the
+   * screen at once, so quick taps feel instant; throws if it could not be saved.
+   */
+  setMinistryDays: (personId: string, days: MinistryDay[]) => Promise<void>;
   /** Contacts that were archived (hidden, never deleted) and can be restored. */
   archivedPeople: Person[];
   restorePerson: (id: string) => Promise<void>;
@@ -1205,6 +1212,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           location_lat: person.location_lat ?? null,
           location_lng: person.location_lng ?? null,
           area_id: person.area_id ?? null,
+          ministry_days: person.ministry_days ?? [],
           phone_number: person.phone_number ?? null,
           preferred_contact_time: person.preferred_contact_time ?? null,
           first_met_date: person.first_met_date ?? todayISO(),
@@ -1264,6 +1272,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           location_lat: person.location_lat ?? null,
           location_lng: person.location_lng ?? null,
           area_id: person.area_id ?? null,
+          // Only sent when chosen, so adding a person still works on a
+          // database that has not had migration 019 yet.
+          ...(person.ministry_days?.length ? { ministry_days: person.ministry_days } : {}),
           phone_number: person.phone_number ?? null,
           preferred_contact_time: person.preferred_contact_time ?? null,
           first_met_date: person.first_met_date ?? todayISO(),
@@ -1328,6 +1339,54 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await refresh();
     },
     [applyDemo, demoMode, refresh]
+  );
+
+  // Sorting people into days is a run of quick taps, so the screen updates at
+  // once and the latest choice is sent one request at a time per person: quick
+  // taps can't arrive out of order and leave an older choice saved.
+  const daysSaves = useRef(
+    new Map<string, { sending: boolean; next: MinistryDay[] | null }>()
+  );
+  const setMinistryDays = useCallback(
+    async (personId: string, days: MinistryDay[]) => {
+      setPeople((prev) =>
+        prev.map((p) => (p.id === personId ? { ...p, ministry_days: days } : p))
+      );
+      if (demoMode) {
+        const data = loadDemoData();
+        data.people = data.people.map((p) =>
+          p.id === personId
+            ? { ...p, ministry_days: days, updated_at: new Date().toISOString() }
+            : p
+        );
+        saveDemoData(data);
+        return;
+      }
+      const slot = daysSaves.current.get(personId) ?? { sending: false, next: null };
+      daysSaves.current.set(personId, slot);
+      slot.next = days;
+      if (slot.sending) return;
+      slot.sending = true;
+      const supabase = createClient();
+      try {
+        while (slot.next) {
+          const send = slot.next;
+          slot.next = null;
+          const { error } = await supabase
+            .from("people")
+            .update({ ministry_days: send })
+            .eq("id", personId);
+          if (error) throw error;
+        }
+      } catch (err) {
+        slot.next = null;
+        await refresh(); // show what is really saved
+        throw err;
+      } finally {
+        slot.sending = false;
+      }
+    },
+    [demoMode, refresh]
   );
 
   const addPersonalReminder = useCallback(
@@ -2912,6 +2971,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     saveConversation,
     savePerson,
     archivePerson,
+    setMinistryDays,
     updateReturnVisit,
     createReturnVisit,
     saveBibleStudy,

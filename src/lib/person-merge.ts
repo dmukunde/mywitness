@@ -9,6 +9,7 @@ import type {
   ReturnVisit,
   ScheduledMinistryEvent,
 } from "@/lib/types";
+import { MINISTRY_DAYS, daysOf } from "@/lib/ministry-days";
 
 /**
  * Merging two contacts: everything that belonged to one moves to the other,
@@ -168,6 +169,17 @@ export function mergePeopleInData(
       kv[f] = `${kv[f]}\n\n${mv[f]}`;
       changed.push(f);
     }
+  }
+
+  // Ministry days: the kept contact ends up with the days of both.
+  const keepDays = daysOf(keep);
+  const mergeDays = daysOf(merge);
+  if (mergeDays.some((d) => !keepDays.includes(d))) {
+    prev.ministry_days = keepDays;
+    kv.ministry_days = MINISTRY_DAYS.filter(
+      (d) => keepDays.includes(d) || mergeDays.includes(d)
+    );
+    changed.push("ministry_days");
   }
 
   data.people = data.people.map((p) => {
