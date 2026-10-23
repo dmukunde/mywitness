@@ -80,15 +80,36 @@ export function splitLines(value: string): string[] {
     .filter(Boolean);
 }
 
+/** What a new reference starts with: a book name, optionally numbered ("1 Cor"). */
+const BOOK_AHEAD = String.raw`(?=[1-3]?\s*\.?\s*[A-Za-z]{2})`;
+
 /**
- * References are one per line; a semicolon also separates them, since people
- * type "Matt 24:14; Rev 21:4". Commas are left alone — they belong to
- * references like "Matt 24:3, 14".
+ * Where one reference ends and the next begins. A separator only counts when a
+ * book name follows it, so "Matt 24:3, 14" and "John 3:16; 4:1" stay whole
+ * (they are one book's verses) while all of these become two references:
+ * "Matt 24:14; Rev 21:4", "Matt 24:14, Rev 21:4", "Matt 24:14 and Rev 21:4",
+ * "Matt 24:14 & Rev 21:4" and "Matt 24:14 Rev 21:4".
+ */
+const REFERENCE_BREAK = new RegExp(
+  String.raw`\s*[;,&+]\s*${BOOK_AHEAD}` +
+    String.raw`|\s+and\s+${BOOK_AHEAD}` +
+    // Two references with only a space between them: the first ends in a verse.
+    String.raw`|(?<=\d:\d+(?:[-–]\d+)*)\s+${BOOK_AHEAD}`,
+  "i"
+);
+
+/**
+ * Splits what was typed into separate references. A new line always starts a
+ * new one; within a line, any of the separators above does. Bullets, "1)"
+ * list numbers and trailing full stops are dropped.
  */
 export function splitReferences(value: string): string[] {
   return value
-    .split(/[\n;]/)
-    .map((r) => r.trim())
+    .split("\n")
+    .flatMap((line) =>
+      line.replace(/^\s*(?:[•·*\-–—]+|\d+\))\s*/, "").split(REFERENCE_BREAK)
+    )
+    .map((r) => r.trim().replace(/[.,;:]+$/, "").trim())
     .filter(Boolean);
 }
 

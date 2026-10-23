@@ -126,7 +126,7 @@ export function ToolkitEntryForm({
           hint={
             unreadable.length
               ? `Can't link: ${unreadable.join(", ")}. It will be saved as plain text.`
-              : undefined
+              : 'Add as many as you like. Put each on a new line, or separate them with a comma, ; or "and".'
           }
         />
         {refs.length > 0 && unreadable.length < refs.length && (

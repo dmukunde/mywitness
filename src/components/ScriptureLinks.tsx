@@ -2,6 +2,7 @@
 
 import { ExternalLink } from "lucide-react";
 import { scriptureLinks } from "@/lib/scripture";
+import { splitReferences } from "@/lib/toolkit";
 import { cn } from "@/lib/utils";
 
 /**
@@ -16,7 +17,8 @@ export function ScriptureLinks({
   references: string[];
   className?: string;
 }) {
-  const list = references.map((r) => r.trim()).filter(Boolean);
+  // An entry saved as one piece ("John 3:16, Matthew 24:14") still links each verse.
+  const list = references.flatMap(splitReferences);
   if (!list.length) return null;
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>

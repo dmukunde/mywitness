@@ -10,6 +10,7 @@ import {
   toolkitPayload,
 } from "@/lib/toolkit";
 import { EMPTY_TOOLKIT_FORM, type ToolkitEntry } from "@/lib/types";
+import { scriptureLinks } from "@/lib/scripture";
 
 function entry(o: Partial<ToolkitEntry>): ToolkitEntry {
   return {
@@ -109,6 +110,41 @@ describe("saving an entry", () => {
       "Ps 83:18",
     ]);
     expect(splitReferences("Matt 24:3, 14")).toEqual(["Matt 24:3, 14"]);
+  });
+
+  it("also separates verses typed with a comma, a space, 'and' or '&' between books", () => {
+    const two = ["John 3:16", "Matthew 24:14"];
+    expect(splitReferences("John 3:16, Matthew 24:14")).toEqual(two);
+    expect(splitReferences("John 3:16 Matthew 24:14")).toEqual(two);
+    expect(splitReferences("John 3:16 and Matthew 24:14")).toEqual(two);
+    expect(splitReferences("John 3:16 & Matthew 24:14")).toEqual(two);
+    expect(splitReferences("John 3:16,Matthew 24:14")).toEqual(two);
+    expect(splitReferences("John 3:16, Matthew 24:14, Rev 21:4")).toEqual([
+      ...two,
+      "Rev 21:4",
+    ]);
+  });
+
+  it("keeps verses of one book together, and numbered books intact", () => {
+    expect(splitReferences("John 3:16, 18")).toEqual(["John 3:16, 18"]);
+    expect(splitReferences("John 3:16-18, 20; 4:1")).toEqual(["John 3:16-18, 20; 4:1"]);
+    expect(splitReferences("1 John 4:8")).toEqual(["1 John 4:8"]);
+    expect(splitReferences("Ps 83:18, 1 John 4:8")).toEqual(["Ps 83:18", "1 John 4:8"]);
+    expect(splitReferences("Matt 24:14 1 Cor 13:4")).toEqual(["Matt 24:14", "1 Cor 13:4"]);
+  });
+
+  it("ignores bullets, list numbers and trailing full stops", () => {
+    expect(splitReferences("• John 3:16.\n- Matthew 24:14;\n1) Rev 21:4,")).toEqual([
+      "John 3:16",
+      "Matthew 24:14",
+      "Rev 21:4",
+    ]);
+  });
+
+  it("every verse in a typed list gets its own working link", () => {
+    const refs = splitReferences("John 3:16, Matthew 24:14 and Rev 21:4");
+    expect(refs).toHaveLength(3);
+    expect(refs.every((r) => scriptureLinks(r) !== null)).toBe(true);
   });
 
   it("trims text, nulls empty fields and turns lists into arrays", () => {
