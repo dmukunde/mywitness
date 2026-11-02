@@ -50,6 +50,18 @@ import {
 } from "@/lib/reminders";
 import { emptyToNull, minutesBetween, parseScriptures, sanitizeDisplayName, todayISO } from "@/lib/utils";
 import { mergePeopleInData, unmergePeopleInData } from "@/lib/person-merge";
+import { openStore, type KeyValueStore } from "@/lib/offline/store";
+import { Outbox, applyOps, createOp, type OutboxOp } from "@/lib/offline/outbox";
+import {
+  SNAPSHOT_VERSION,
+  clearUserData,
+  loadLastUser,
+  loadSnapshot,
+  removeOtherUsersData,
+  saveSnapshot,
+  type Snapshot,
+} from "@/lib/offline/snapshot";
+import { isNetworkError, withTimeout } from "@/lib/offline/errors";
 import {
   dismissRemindersForVisits,
   saveBibleStudyDemo,
@@ -101,6 +113,28 @@ interface AppContextValue {
   toolkitEntries: ToolkitEntry[];
   /** The one open (end_time null) ministry session for this user, if any. */
   activeMinistrySession: MinistrySession | null;
+  /**
+   * How what is on screen was loaded:
+   *  - "loading": first load in progress
+   *  - "ready": confirmed with the server just now
+   *  - "stale": the server could not be reached; showing the copy kept on this phone
+   *  - "error": nothing could be loaded and there is no copy on this phone
+   */
+  loadState: "loading" | "ready" | "stale" | "error";
+  /** When the records on screen were last confirmed with the server (ISO time), if known. */
+  lastSyncedAt: string | null;
+  /** Whether the server could be reached the last time we tried. */
+  online: boolean;
+  /** Changes made on this phone that have not been sent yet. */
+  pendingChanges: number;
+  /** Changes the server refused, waiting for the person to retry or discard. */
+  failedChanges: OutboxOp[];
+  /** True when waiting changes cannot be sent until the person signs in again. */
+  needsSignIn: boolean;
+  /** Tries to reach the server now: reloads the records and sends waiting changes. */
+  syncNow: () => Promise<void>;
+  retryFailedChanges: () => Promise<void>;
+  discardFailedChanges: () => Promise<void>;
   refresh: () => Promise<void>;
   enableDemoMode: () => void;
   disableDemoMode: () => void;
@@ -264,6 +298,46 @@ const defaultSettings = (userId: string): UserSettings => ({
   updated_at: new Date().toISOString(),
 });
 
+/** How long to wait for the server before treating the signal as gone. */
+const AUTH_CHECK_TIMEOUT_MS = 8_000;
+const LOAD_TIMEOUT_MS = 20_000;
+const SEND_TIMEOUT_MS = 20_000;
+/** How often to try again while changes are waiting or the server could not be reached. */
+const RETRY_EVERY_MS = 30_000;
+
+/** Sends one waiting change to the server. Throws if it could not be sent. */
+async function sendOutboxOp(op: OutboxOp): Promise<void> {
+  const table = createClient().from(op.table);
+  const result =
+    op.kind === "insert"
+      ? await withTimeout(table.insert(op.payload ?? {}), SEND_TIMEOUT_MS)
+      : op.kind === "update"
+        ? await withTimeout(table.update(op.payload ?? {}).eq("id", op.rowId), SEND_TIMEOUT_MS)
+        : await withTimeout(table.delete().eq("id", op.rowId), SEND_TIMEOUT_MS);
+  const { error, status } = result;
+  // "Already there" means an earlier attempt got through before the signal dropped.
+  if (error && !(op.kind === "insert" && error.code === "23505")) {
+    throw Object.assign(new Error(error.message), {
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+      status,
+    });
+  }
+}
+
+/** A stand-in for the signed-in person when only their saved copy is available (no signal). */
+function offlineUser(id: string, email: string | null): User {
+  return {
+    id,
+    email: email ?? undefined,
+    aud: "authenticated",
+    app_metadata: {},
+    user_metadata: {},
+    created_at: "",
+  } as User;
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -289,6 +363,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [scripturesMap, setScripturesMap] = useState<
     Record<string, { id: string; scripture_reference: string }[]>
   >({});
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "stale" | "error">(
+    "loading"
+  );
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [online, setOnline] = useState(true);
+  const [pendingChanges, setPendingChanges] = useState(0);
+  const [failedChanges, setFailedChanges] = useState<OutboxOp[]>([]);
+  const [needsSignIn, setNeedsSignIn] = useState(false);
+  const storeRef = useRef<KeyValueStore | null>(null);
+  const outboxRef = useRef<Outbox | null>(null);
+  const reconnectingRef = useRef(false);
+  // The newest values, for background timers that must not act on stale ones.
+  const latest = useRef({ user: null as User | null, loadState: "loading" as string, pending: 0, online: true });
+  useEffect(() => {
+    latest.current = { user, loadState, pending: pendingChanges, online };
+  }, [user, loadState, pendingChanges, online]);
 
   const applyDemo = useCallback((data: DemoData) => {
     const areaById = new Map((data.areas || []).map((a) => [a.id, a]));
@@ -603,7 +693,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }))
       );
       setReturnVisits((rvRes.data as ReturnVisit[]) || []);
-      setSessions((sessionsRes.data as MinistrySession[]) || []);
+      // Time entries made on this phone that the server has not received yet
+      // stay visible on top of what the server returned.
+      setSessions(
+        applyOps(
+          (sessionsRes.data as MinistrySession[]) || [],
+          outboxRef.current?.all() ?? [],
+          "ministry_sessions"
+        )
+      );
       setReminders((remindersRes.data as Reminder[]) || []);
       setBibleStudies(
         bibleTablesMissing ? [] : (studiesRes.data as BibleStudy[]) || []
@@ -645,6 +743,55 @@ export function AppProvider({ children }: { children: ReactNode }) {
               follow_up_questions: e.follow_up_questions ?? [],
             }))
       );
+
+      // Keep a copy on this phone so the app can open with no signal. It is
+      // the server's rows as they are now (waiting changes are laid on top
+      // when it is opened, not stored in it).
+      const savedAt = new Date().toISOString();
+      const store = storeRef.current;
+      if (store) {
+        const withoutJoins = (rows: unknown[] | null | undefined, joins: string[]) =>
+          (rows ?? []).map((row) => {
+            const copy = { ...(row as Record<string, unknown>) };
+            for (const j of joins) delete copy[j];
+            return copy;
+          });
+        const snapshot = {
+          version: SNAPSHOT_VERSION,
+          userId: uid,
+          email: email ?? null,
+          displayName: nameFromProfile,
+          settings: (settingsRes.data as UserSettings) || defaultSettings(uid),
+          savedAt,
+          data: {
+            people: [
+              ...withoutJoins(peopleRes.data, ["area", "photos"]),
+              ...(archivedRes.error ? [] : withoutJoins(archivedRes.data, [])),
+            ],
+            conversations: withoutJoins(convRes.data, ["person"]),
+            scriptures: scripturesRes.data ?? [],
+            returnVisits: withoutJoins(rvRes.data, ["person", "conversation"]),
+            sessions: sessionsRes.data ?? [],
+            reminders: remindersRes.data ?? [],
+            bibleStudies: bibleTablesMissing ? [] : withoutJoins(studiesRes.data, ["person"]),
+            studySessions: bibleTablesMissing ? [] : studySessionsRes.data ?? [],
+            ministryEvents: bibleTablesMissing ? [] : withoutJoins(eventsRes.data, ["person"]),
+            areas: areasList,
+            personPhotos: photosList,
+            studyNotes: studyNotesTableMissing ? [] : studyNotesRes.data ?? [],
+            toolkitEntries:
+              toolkitTableMissing || toolkitRes.error ? [] : toolkitRes.data ?? [],
+            personMerges: [],
+            personalReminders: personalRemindersRes.error
+              ? []
+              : personalRemindersRes.data ?? [],
+          },
+        } as unknown as Snapshot;
+        void saveSnapshot(store, snapshot).catch(() => undefined);
+      }
+      setLastSyncedAt(savedAt);
+      setOnline(true);
+      setLoadState("ready");
     },
     []
   );
@@ -666,6 +813,147 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [applyDemo, demoMode, refreshFromSupabase, user]);
 
+  /** Sends the changes waiting on this phone. Does nothing if there are none. */
+  const syncOutbox = useCallback(async () => {
+    const outbox = outboxRef.current;
+    if (!outbox || outbox.pendingCount === 0) return null;
+    const result = await outbox.flush(sendOutboxOp);
+    if (result.stoppedBy === "network") setOnline(false);
+    else if (result.sent > 0) setOnline(true);
+    setNeedsSignIn(result.stoppedBy === "auth");
+    if (result.sent > 0 && result.stoppedBy === null) {
+      setLastSyncedAt(new Date().toISOString());
+    }
+    return result;
+  }, []);
+
+  /** Puts a saved copy on screen, with any waiting changes laid on top. */
+  const hydrateFromSnapshot = useCallback(
+    (snapshot: Snapshot) => {
+      const ops = outboxRef.current?.all() ?? [];
+      applyDemo({
+        ...snapshot.data,
+        sessions: applyOps(snapshot.data.sessions, ops, "ministry_sessions"),
+      });
+      setSettings(snapshot.settings ?? defaultSettings(snapshot.userId));
+      setDisplayName(snapshot.displayName);
+      setLastSyncedAt(snapshot.savedAt);
+    },
+    [applyDemo]
+  );
+
+  /**
+   * Opens what this phone has stored for the person: their waiting changes and
+   * their saved copy of the records (shown straight away if there is one).
+   */
+  const openLocalData = useCallback(
+    async (uid: string): Promise<Snapshot | null> => {
+      const store = storeRef.current;
+      if (!store) return null;
+      const outbox = new Outbox(store, uid);
+      await outbox.load();
+      const show = () => {
+        setPendingChanges(outbox.pendingCount);
+        setFailedChanges(outbox.failed());
+      };
+      outbox.subscribe(show);
+      outboxRef.current = outbox;
+      show();
+      // Someone else's old copy shouldn't linger (unless it has unsent work).
+      void removeOtherUsersData(store, uid).catch(() => undefined);
+      const snapshot = await loadSnapshot(store, uid);
+      if (snapshot) hydrateFromSnapshot(snapshot);
+      return snapshot;
+    },
+    [hydrateFromSnapshot]
+  );
+
+  /**
+   * Brings in the latest from the server: sends waiting changes first, so the
+   * server's answer already includes them, then reloads. If the server can't be
+   * reached, whatever is on screen stays (a saved copy) and we say so.
+   */
+  const loadLatest = useCallback(
+    async (uid: string, email: string | null | undefined, haveCopy: boolean) => {
+      try {
+        await syncOutbox();
+        await withTimeout(refreshFromSupabase(uid, email), LOAD_TIMEOUT_MS);
+      } catch (err) {
+        if (isNetworkError(err)) setOnline(false);
+        else console.error("[MyWitness load]", err);
+        setLoadState(haveCopy ? "stale" : "error");
+      }
+    },
+    [refreshFromSupabase, syncOutbox]
+  );
+
+  /** Tries to reach the server again (no signal earlier, or changes waiting). */
+  const reconnect = useCallback(
+    async (force = false) => {
+      if (reconnectingRef.current || demoMode) return;
+      const now = latest.current;
+      if (!now.user) return;
+      if (!force && now.loadState === "ready" && now.pending === 0 && now.online) return;
+      reconnectingRef.current = true;
+      try {
+        const supabase = createClient();
+        let authUser: User | null = null;
+        let authError: unknown = null;
+        try {
+          const res = await withTimeout(supabase.auth.getUser(), AUTH_CHECK_TIMEOUT_MS);
+          authUser = res.data.user;
+          authError = res.error;
+        } catch (err) {
+          authError = err;
+        }
+        if (!authUser) {
+          if (authError && isNetworkError(authError)) {
+            setOnline(false);
+            return;
+          }
+          // The server no longer accepts this sign-in. Keep everything that
+          // is waiting; it is sent once the person signs in again.
+          if (latest.current.pending > 0 || latest.current.loadState !== "ready") {
+            setNeedsSignIn(true);
+          } else {
+            setUser(null);
+          }
+          return;
+        }
+        if (authUser.id !== now.user.id) {
+          // A different person is signed in on this phone now.
+          window.location.reload();
+          return;
+        }
+        setUser(authUser);
+        setOnline(true);
+        setNeedsSignIn(false);
+        if (latest.current.loadState === "ready") {
+          await syncOutbox();
+        } else {
+          await loadLatest(authUser.id, authUser.email, latest.current.loadState === "stale");
+        }
+      } finally {
+        reconnectingRef.current = false;
+      }
+    },
+    [demoMode, loadLatest, syncOutbox]
+  );
+
+  const syncNow = useCallback(async () => {
+    await reconnect(true);
+  }, [reconnect]);
+
+  const retryFailedChanges = useCallback(async () => {
+    await outboxRef.current?.retryFailed();
+    await syncOutbox();
+  }, [syncOutbox]);
+
+  const discardFailedChanges = useCallback(async () => {
+    await outboxRef.current?.discardFailed();
+    await refresh();
+  }, [refresh]);
+
   useEffect(() => {
     let mounted = true;
 
@@ -683,6 +971,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setDisplayName("Doreen");
       applyDemo(loadDemoData());
       setSettings(defaultSettings("demo-user"));
+      setLoadState("ready");
       setLoading(false);
     }
 
@@ -692,16 +981,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (isDemoMode()) {
           await enterDemoMode();
         } else {
+          setLoadState("ready");
           setLoading(false);
         }
         return;
       }
 
       const supabase = createClient();
-      const {
-        data: { user: authUser },
-        error: authError,
-      } = await supabase.auth.getUser();
+      const store = await openStore();
+      storeRef.current = store;
+
+      // Who is signed in? Don't wait forever: on a weak signal this can hang.
+      let authUser: User | null = null;
+      let authError: { name?: string; message?: string } | null = null;
+      try {
+        const res = await withTimeout(supabase.auth.getUser(), AUTH_CHECK_TIMEOUT_MS);
+        authUser = res.data.user;
+        authError = res.error;
+      } catch (err) {
+        authError = err as { name?: string; message?: string };
+      }
       if (!mounted) return;
 
       // A real signed-in session always takes precedence over a stale
@@ -719,11 +1018,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setUser(authUser);
         const safeSaved = sanitizeDisplayName(savedName, authUser.email);
         if (safeSaved) setDisplayName(safeSaved);
-        try {
-          await refreshFromSupabase(authUser.id, authUser.email);
-        } catch (err) {
-          console.error(err);
-        }
+
+        // If this phone already holds a copy, show it at once while the
+        // latest loads; otherwise wait for the first load.
+        const snapshot = await openLocalData(authUser.id);
+        if (!mounted) return;
+        if (snapshot) setLoading(false);
+        await loadLatest(authUser.id, authUser.email, snapshot !== null);
+        if (!mounted) return;
         setLoading(false);
 
         const {
@@ -767,16 +1069,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // No real session. `getUser()` reports an expected
       // AuthSessionMissingError for every anonymous visit — that's normal,
       // not a bug, so only surface genuinely unexpected auth errors.
-      if (authError && authError.name !== "AuthSessionMissingError") {
+      if (
+        authError &&
+        authError.name !== "AuthSessionMissingError" &&
+        !isNetworkError(authError)
+      ) {
         console.error(authError);
       }
 
       if (isDemoMode()) {
         await enterDemoMode();
-      } else {
-        setUser(null);
-        setLoading(false);
+        return;
       }
+
+      // The signal is gone (or too weak to tell). That is not the same as being
+      // signed out: open the copy kept on this phone, if there is one, and keep
+      // trying to reach the server in the background.
+      if (authError && isNetworkError(authError)) {
+        const last = await loadLastUser(store);
+        const snapshot = last ? await openLocalData(last.userId) : null;
+        if (!mounted) return;
+        setOnline(false);
+        if (last && snapshot) {
+          setUser(offlineUser(last.userId, last.email));
+          setLoadState("stale");
+        } else {
+          // Nothing saved on this phone yet: the very first open needs signal.
+          setUser(null);
+          setLoadState("ready");
+        }
+        setLoading(false);
+        return;
+      }
+
+      setUser(null);
+      setLoadState("ready");
+      setLoading(false);
     }
 
     const cleanup = init();
@@ -784,7 +1112,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
       mounted = false;
       cleanup.then((unsub) => unsub?.());
     };
-  }, [applyDemo, refreshFromSupabase]);
+  }, [applyDemo, loadLatest, openLocalData, refreshFromSupabase]);
+
+  // Keep trying to reach the server while the signal is gone or changes are
+  // waiting: when the phone says it is back online, when the app is reopened,
+  // and every half minute while the app is on screen.
+  const signedInId = user?.id ?? null;
+  useEffect(() => {
+    if (demoMode || !signedInId) return;
+    const tryNow = () => void reconnect();
+    const goOffline = () => setOnline(false);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") tryNow();
+    };
+    window.addEventListener("online", tryNow);
+    window.addEventListener("offline", goOffline);
+    document.addEventListener("visibilitychange", onVisible);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") tryNow();
+    }, RETRY_EVERY_MS);
+    return () => {
+      window.removeEventListener("online", tryNow);
+      window.removeEventListener("offline", goOffline);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.clearInterval(timer);
+    };
+  }, [demoMode, reconnect, signedInId]);
 
   const enableDemoMode = useCallback(() => {
     persistDemoMode(true);
@@ -901,6 +1254,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
    * day that already had a timer session silently replaced its duration
    * instead of adding to it.
    */
+  /** True when changes can be saved on this phone to be sent later (it can keep them across restarts). */
+  const canQueueChanges = useCallback(
+    () => Boolean(outboxRef.current && storeRef.current?.persistent),
+    []
+  );
+
+  /**
+   * Saves a time-entry change on this phone first, then sends it. With signal
+   * it goes at once; without, it waits and is sent when signal returns. If the
+   * server refuses it outright, the change is taken back and the reason shown.
+   */
+  const queueSessionChange = useCallback(
+    async (op: OutboxOp) => {
+      const outbox = outboxRef.current;
+      if (!outbox) throw new Error("Could not save on this phone.");
+      await outbox.enqueue(op);
+      setSessions((prev) => applyOps(prev, [op], "ministry_sessions"));
+      const result = await syncOutbox();
+      const refused = outbox.failed().find((f) => f.id === op.id);
+      if (refused) {
+        await outbox.discardOp(op.id);
+        await refresh();
+        throw new Error(refused.error ?? "That could not be saved.");
+      }
+      if (result && result.sent > 0) await refresh();
+    },
+    [refresh, syncOutbox]
+  );
+
   const saveDailyMinistryTime = useCallback(
     async (input: {
       date?: string;
@@ -948,6 +1330,44 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return row;
       }
 
+      if (canQueueChanges()) {
+        const row: MinistrySession = {
+          id: crypto.randomUUID(),
+          user_id: user!.id,
+          start_time: startIso,
+          end_time: endIso,
+          duration_minutes: duration,
+          session_date: date,
+          ministry_type: null,
+          companion: null,
+          area: null,
+          personal_reflection: notes,
+          source: "manual",
+          is_demo: false,
+          created_at: now,
+          updated_at: now,
+        };
+        await queueSessionChange(
+          createOp({
+            table: "ministry_sessions",
+            kind: "insert",
+            rowId: row.id,
+            payload: {
+              id: row.id,
+              user_id: row.user_id,
+              start_time: startIso,
+              end_time: endIso,
+              duration_minutes: duration,
+              session_date: date,
+              personal_reflection: notes,
+              source: "manual",
+            },
+            row: row as unknown as Record<string, unknown>,
+          })
+        );
+        return row;
+      }
+
       const supabase = createClient();
       const { data, error } = await supabase
         .from("ministry_sessions")
@@ -966,7 +1386,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await refresh();
       return data as MinistrySession;
     },
-    [applyDemo, demoMode, refresh, user]
+    [applyDemo, canQueueChanges, demoMode, queueSessionChange, refresh, user]
   );
 
   const deleteMinistrySession = useCallback(
@@ -978,6 +1398,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         applyDemo(data);
         return;
       }
+      if (canQueueChanges()) {
+        await queueSessionChange(
+          createOp({ table: "ministry_sessions", kind: "delete", rowId: id })
+        );
+        return;
+      }
       const supabase = createClient();
       const { error } = await supabase
         .from("ministry_sessions")
@@ -986,7 +1412,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (error) throw error;
       await refresh();
     },
-    [applyDemo, demoMode, refresh]
+    [applyDemo, canQueueChanges, demoMode, queueSessionChange, refresh]
   );
 
   const updateSession = useCallback(
@@ -1038,6 +1464,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!payload.start_time && !current?.start_time) {
         throw new Error("Ministry session not found.");
       }
+      if (canQueueChanges()) {
+        await queueSessionChange(
+          createOp({
+            table: "ministry_sessions",
+            kind: "update",
+            rowId: id,
+            payload: payload as Record<string, unknown>,
+          })
+        );
+        return;
+      }
       const { error } = await supabase
         .from("ministry_sessions")
         .update(payload)
@@ -1045,7 +1482,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (error) throw error;
       await refresh();
     },
-    [applyDemo, demoMode, refresh, sessions]
+    [applyDemo, canQueueChanges, demoMode, queueSessionChange, refresh, sessions]
   );
 
   const activeMinistrySession = useMemo(
@@ -1082,6 +1519,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return row;
     }
     if (!user) throw new Error("Please sign in to start a timer.");
+    if (canQueueChanges()) {
+      const row: MinistrySession = {
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        start_time: now,
+        end_time: null,
+        duration_minutes: null,
+        session_date: todayISO(),
+        ministry_type: null,
+        companion: null,
+        area: null,
+        personal_reflection: null,
+        source: "timer",
+        is_demo: false,
+        created_at: now,
+        updated_at: now,
+      };
+      await queueSessionChange(
+        createOp({
+          table: "ministry_sessions",
+          kind: "insert",
+          rowId: row.id,
+          payload: {
+            id: row.id,
+            user_id: user.id,
+            start_time: now,
+            end_time: null,
+            duration_minutes: null,
+            session_date: row.session_date,
+            source: "timer",
+          },
+          row: row as unknown as Record<string, unknown>,
+        })
+      );
+      return row;
+    }
     const supabase = createClient();
     const { data, error } = await supabase
       .from("ministry_sessions")
@@ -1098,7 +1571,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (error) throw error;
     await refresh();
     return data as MinistrySession;
-  }, [activeMinistrySession, applyDemo, demoMode, refresh, user]);
+  }, [
+    activeMinistrySession,
+    applyDemo,
+    canQueueChanges,
+    demoMode,
+    queueSessionChange,
+    refresh,
+    user,
+  ]);
 
   /**
    * Ends the active timer by updating its own row only — it no longer
@@ -1139,6 +1620,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      if (canQueueChanges()) {
+        await queueSessionChange(
+          createOp({
+            table: "ministry_sessions",
+            kind: "update",
+            rowId: activeMinistrySession.id,
+            payload: {
+              end_time: now,
+              duration_minutes: timerDuration,
+              personal_reflection:
+                input.notes || activeMinistrySession.personal_reflection,
+              updated_at: now,
+            },
+          })
+        );
+        return;
+      }
+
       const supabase = createClient();
       const { error: updateError } = await supabase
         .from("ministry_sessions")
@@ -1153,7 +1652,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (updateError) throw updateError;
       await refresh();
     },
-    [activeMinistrySession, applyDemo, demoMode, refresh]
+    [activeMinistrySession, applyDemo, canQueueChanges, demoMode, queueSessionChange, refresh]
   );
 
   const discardMinistryTimer = useCallback(async () => {
@@ -1166,6 +1665,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       applyDemo(data);
       return;
     }
+    if (canQueueChanges()) {
+      await queueSessionChange(
+        createOp({ table: "ministry_sessions", kind: "delete", rowId: id })
+      );
+      return;
+    }
     const supabase = createClient();
     const { error } = await supabase
       .from("ministry_sessions")
@@ -1173,7 +1678,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .eq("id", id);
     if (error) throw error;
     await refresh();
-  }, [activeMinistrySession, applyDemo, demoMode, refresh]);
+  }, [
+    activeMinistrySession,
+    applyDemo,
+    canQueueChanges,
+    demoMode,
+    queueSessionChange,
+    refresh,
+  ]);
 
   const savePerson = useCallback(
     async (
@@ -2877,7 +3389,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
     const supabase = createClient();
-    await supabase.auth.signOut();
+    // Take this person's records off the phone, and the page copies kept for
+    // opening with no signal. (The screen warns first if changes are unsent.)
+    const uid = latest.current.user?.id;
+    const store = storeRef.current;
+    if (uid && store) await clearUserData(store, uid).catch(() => undefined);
+    outboxRef.current = null;
+    setPendingChanges(0);
+    setFailedChanges([]);
+    setLastSyncedAt(null);
+    setNeedsSignIn(false);
+    if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.controller?.postMessage({ type: "clear-private-caches" });
+    }
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // No signal: the local sign-out below still ends this phone's session.
+    }
+    await supabase.auth.signOut({ scope: "local" }).catch(() => undefined);
     setUser(null);
   }, [demoMode, disableDemoMode]);
 
@@ -2935,6 +3465,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     studyNotes,
     toolkitEntries,
     activeMinistrySession,
+    loadState,
+    lastSyncedAt,
+    online,
+    pendingChanges,
+    failedChanges,
+    needsSignIn,
+    syncNow,
+    retryFailedChanges,
+    discardFailedChanges,
     refresh,
     enableDemoMode,
     disableDemoMode,

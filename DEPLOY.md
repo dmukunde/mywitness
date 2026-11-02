@@ -189,3 +189,17 @@ The server log also has one `[ai-usage]` line per request (kind, outcome, a shor
 ## Who can open which pages
 
 `src/lib/route-access.ts` is the single list of pages that work without signing in (`/privacy`, `/terms`, `/support`, `/delete-account-info`, plus the service worker and manifest). Everything else needs a session, and API routes answer unauthenticated calls with a plain 401.
+
+## Working with no signal (offline)
+
+MyWitness opens and can be used with no data. Two parts make that work.
+
+**1. The app's screens are kept on the phone** (`public/sw.js`, the service worker). After someone signs in, the app asks the worker to save the app's own screens and code (about 0.5 MB, once per release). It saves only empty page shells and code, never anyone's records, and never anything from the server's API or Supabase. Screens for one person, study or visit use a saved placeholder ("/people/_" and so on); the screen reads the real id from the address (`src/hooks/useRouteParams.ts`). Each release installs its own worker (`?v=` build id), and the previous release's screens stay usable until the new ones are saved.
+
+**2. The person's records are kept on the phone** (`src/lib/offline/`). After every successful load the app saves a copy of the records in the browser's database (IndexedDB) and opens from that copy first. With no signal the app shows that copy and a banner says so. Ministry time (start, stop, manual time, edit, delete) is saved on the phone first and put in a list of changes waiting to be sent. They are sent automatically when signal returns (and every 30 seconds while the app is open). Nothing waiting is ever dropped silently: a change the server refuses stays visible with Try again / Discard, and signing out warns first if changes are unsent. Other changes (people, visits, studies, ...) still need internet and say so.
+
+**Privacy of the copy on the phone:** it is protected by the phone's own lock, not separately encrypted. It is removed on sign-out and on account deletion, and another person's copy is cleared when someone new signs in (unless it has unsent changes).
+
+**Switching the worker off (support):** in the browser, set `localStorage["mw-no-service-worker"] = "1"` and reload; the worker and its saved screens are removed. The worker is only registered in the deployed app, never in `npm run dev`.
+
+**Testing it properly needs a real phone:** open the app with signal and wait a minute, then switch on airplane mode and open it from the Home Screen. Check the Today, Calendar, People, a person's page, the monthly report; start and stop the timer; add time manually. Then switch airplane mode off and check the banner clears and the time appears in the report. The worker's logic is covered by `src/lib/__tests__/service-worker.test.ts`, the queue by `src/lib/offline/__tests__/`.

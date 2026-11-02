@@ -47,7 +47,7 @@ function mapFriendlyMessage(raw: string, code?: string): string {
     case "42703":
     case "42P01":
     case "PGRST204":
-      return "This app's database is missing a recent update. Please run the latest migration, then try again.";
+      return "This feature isn't available right now. Please try again later.";
   }
 
   const lower = raw.toLowerCase();
@@ -57,7 +57,7 @@ function mapFriendlyMessage(raw: string, code?: string): string {
     lower.includes("network request failed") ||
     lower.includes("load failed")
   ) {
-    return "Could not reach the server. Check your internet connection and try again.";
+    return "You're offline or the signal is weak, so this wasn't saved. Please try again when you have signal.";
   }
 
   return raw;

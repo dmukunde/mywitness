@@ -2,6 +2,9 @@
 
 import { BottomNav } from "@/components/BottomNav";
 import { DisplayNamePrompt } from "@/components/DisplayNamePrompt";
+import { OfflineBanner } from "@/components/OfflineBanner";
+import { OfflineReady } from "@/components/OfflineReady";
+import { LoadError } from "@/components/LoadError";
 import { useApp } from "@/lib/app-context";
 import { useReminders } from "@/hooks/useReminders";
 import { useReminderAlerts } from "@/hooks/useReminderAlerts";
@@ -14,7 +17,7 @@ export default function AppShellLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { user, loading, demoMode } = useApp();
+  const { user, loading, demoMode, loadState } = useApp();
   const router = useRouter();
   useReminders();
   useReminderAlerts();
@@ -53,7 +56,11 @@ export default function AppShellLayout({
           Demo mode — fictional sample data
         </div>
       )}
-      <main className="flex-1 px-4 pb-24 pt-4">{children}</main>
+      <OfflineReady />
+      <OfflineBanner />
+      <main className="flex-1 px-4 pb-24 pt-4">
+        {loadState === "error" ? <LoadError /> : children}
+      </main>
       <BottomNav />
       <DisplayNamePrompt />
     </div>

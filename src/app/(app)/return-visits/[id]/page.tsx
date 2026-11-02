@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useRouteParams } from "@/hooks/useRouteParams";
 import { useState } from "react";
 import { useApp } from "@/lib/app-context";
 import {
@@ -36,7 +37,7 @@ import { isBefore, parseISO } from "date-fns";
 import { formatDbError } from "@/lib/db-errors";
 
 export default function ReturnVisitPrepPage() {
-  const params = useParams<{ id: string }>();
+  const params = useRouteParams();
   const router = useRouter();
   const { returnVisits, people, conversations, updateReturnVisit, deleteReturnVisit } =
     useApp();

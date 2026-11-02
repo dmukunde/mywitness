@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useRouteParams } from "@/hooks/useRouteParams";
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/app-context";
 import {
@@ -30,7 +31,7 @@ import { formatDbError } from "@/lib/db-errors";
 import { nextActivityForStudy } from "@/lib/schedule";
 
 export default function BibleStudyProfilePage() {
-  const params = useParams<{ id: string }>();
+  const params = useRouteParams();
   const router = useRouter();
   const {
     bibleStudies,

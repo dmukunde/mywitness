@@ -15,6 +15,7 @@ export const PUBLIC_PAGES = [
 /** Files the browser needs before anyone has signed in. */
 const PUBLIC_FILES = new Set([
   "/sw.js",
+  "/offline.html",
   "/manifest.webmanifest",
   "/robots.txt",
 ]);

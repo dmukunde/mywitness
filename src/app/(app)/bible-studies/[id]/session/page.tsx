@@ -1,6 +1,7 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useRouteParams } from "@/hooks/useRouteParams";
 import { useApp } from "@/lib/app-context";
 import { StudySessionForm } from "@/components/StudySessionForm";
 import { EmptyState, PageHeader, Button } from "@/components/ui";
@@ -8,7 +9,7 @@ import Link from "next/link";
 import { todayISO } from "@/lib/utils";
 
 export default function WriteStudySessionPage() {
-  const params = useParams<{ id: string }>();
+  const params = useRouteParams();
   const router = useRouter();
   const { bibleStudies, saveStudySession } = useApp();
   const study = bibleStudies.find((s) => s.id === params.id);

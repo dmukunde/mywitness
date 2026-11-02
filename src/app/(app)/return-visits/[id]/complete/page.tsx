@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useRouteParams } from "@/hooks/useRouteParams";
 import { useRef, useState } from "react";
 import { useApp } from "@/lib/app-context";
 import { useSingleFlight } from "@/hooks/useSingleFlight";
@@ -26,7 +27,7 @@ import {
 import type { Person, ReturnVisit } from "@/lib/types";
 
 export default function CompleteReturnVisitPage() {
-  const params = useParams<{ id: string }>();
+  const params = useRouteParams();
   const { returnVisits, people } = useApp();
   const visit = returnVisits.find((rv) => rv.id === params.id);
   const person = visit

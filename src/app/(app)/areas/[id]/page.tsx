@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useRouteParams } from "@/hooks/useRouteParams";
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/app-context";
 import {
@@ -17,7 +18,7 @@ import { InterestBadge } from "@/components/InterestBadge";
 import { formatDisplayDate } from "@/lib/utils";
 
 export default function AreaDetailPage() {
-  const params = useParams<{ id: string }>();
+  const params = useRouteParams();
   const router = useRouter();
   const { areas, people, returnVisits, bibleStudies, saveArea } = useApp();
   const area = areas.find((a) => a.id === params.id);

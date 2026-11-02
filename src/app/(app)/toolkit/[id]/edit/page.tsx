@@ -1,14 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useRouteParams } from "@/hooks/useRouteParams";
 import { useApp } from "@/lib/app-context";
 import { Button, EmptyState, PageHeader } from "@/components/ui";
 import { ToolkitEntryForm } from "@/components/ToolkitEntryForm";
 import { toolkitCategories, toolkitEntryToForm } from "@/lib/toolkit";
 
 export default function EditToolkitEntryPage() {
-  const params = useParams<{ id: string }>();
+  const params = useRouteParams();
   const router = useRouter();
   const { toolkitEntries, saveToolkitEntry } = useApp();
   const entry = toolkitEntries.find((e) => e.id === params.id);

@@ -52,6 +52,8 @@ export default function SettingsPage() {
     studyNotes,
     toolkitEntries,
     personalReminders,
+    pendingChanges,
+    failedChanges,
   } = useApp();
 
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -150,9 +152,19 @@ export default function SettingsPage() {
     router.replace("/login");
   };
 
-  const handleSignOut = async () => {
+  const [signOutWarning, setSignOutWarning] = useState(false);
+  const doSignOut = async () => {
     await signOut();
     router.replace("/login");
+  };
+  // Changes made with no signal live only on this phone until they are sent;
+  // signing out removes them, so say so first.
+  const handleSignOut = async () => {
+    if (!demoMode && (pendingChanges > 0 || failedChanges.length > 0)) {
+      setSignOutWarning(true);
+      return;
+    }
+    await doSignOut();
   };
 
   return (
@@ -591,6 +603,23 @@ export default function SettingsPage() {
           </p>
         </Card>
       </section>
+
+      <ConfirmDialog
+        open={signOutWarning}
+        title="Some changes haven't been sent"
+        message={`${pendingChanges + failedChanges.length} change${
+          pendingChanges + failedChanges.length === 1 ? " is" : "s are"
+        } still saved only on this phone. If you sign out now, ${
+          pendingChanges + failedChanges.length === 1 ? "it" : "they"
+        } will be lost. Wait until you have signal so they can be sent, or sign out anyway.`}
+        confirmLabel="Sign out anyway"
+        danger
+        onConfirm={() => {
+          setSignOutWarning(false);
+          void doSignOut();
+        }}
+        onCancel={() => setSignOutWarning(false)}
+      />
 
       <ConfirmDialog
         open={deleteOpen}

@@ -7,6 +7,10 @@ const headers = securityHeaders({
 });
 
 const nextConfig: NextConfig = {
+  env: {
+    // Lets each release install its own service worker (see ServiceWorkerRegister).
+    NEXT_PUBLIC_BUILD_ID: process.env.VERCEL_GIT_COMMIT_SHA ?? String(Date.now()),
+  },
   // Don't advertise the framework.
   poweredByHeader: false,
   async headers() {

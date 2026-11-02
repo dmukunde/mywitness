@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useRouteParams } from "@/hooks/useRouteParams";
 import { useEffect, useRef, useState } from "react";
 import { Star } from "lucide-react";
 import { useApp } from "@/lib/app-context";
@@ -18,7 +19,7 @@ import { TOOLKIT_KIND_SINGULAR } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export default function ToolkitEntryPage() {
-  const params = useParams<{ id: string }>();
+  const params = useRouteParams();
   const router = useRouter();
   const {
     toolkitEntries,

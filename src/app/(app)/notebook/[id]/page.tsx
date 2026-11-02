@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useRouteParams } from "@/hooks/useRouteParams";
 import { useState } from "react";
 import { ExternalLink, Star } from "lucide-react";
 import { useApp } from "@/lib/app-context";
@@ -19,7 +20,7 @@ import { formatDisplayDate, parseScriptures } from "@/lib/utils";
 import { parseReferenceLines } from "@/lib/study-notes";
 
 export default function StudyNoteDetailPage() {
-  const params = useParams<{ id: string }>();
+  const params = useRouteParams();
   const router = useRouter();
   const { studyNotes, saveStudyNote, archiveStudyNote } = useApp();
   const note = studyNotes.find((n) => n.id === params.id);

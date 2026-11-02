@@ -56,6 +56,7 @@ describe("classifyRoute", () => {
 
   it("allows only the browser files needed before sign-in", () => {
     expect(classifyRoute("/sw.js")).toBe("file");
+    expect(classifyRoute("/offline.html")).toBe("file");
     expect(classifyRoute("/manifest.webmanifest")).toBe("file");
     expect(classifyRoute("/.well-known/assetlinks.json")).toBe("file");
     expect(classifyRoute("/_next/static/chunks/app.js")).toBe("file");

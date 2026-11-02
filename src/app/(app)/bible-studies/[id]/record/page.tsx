@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useRouteParams } from "@/hooks/useRouteParams";
 import { useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
@@ -32,7 +33,7 @@ function isProcessing(status: string) {
 }
 
 export default function RecordStudySessionPage() {
-  const params = useParams<{ id: string }>();
+  const params = useRouteParams();
   const router = useRouter();
   const { bibleStudies, saveStudySession, demoMode, people } = useApp();
   const study = bibleStudies.find((s) => s.id === params.id);
