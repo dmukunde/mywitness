@@ -2,8 +2,10 @@
 //
 // It does two jobs:
 //
-//  1. OPENS THE APP WITH NO SIGNAL. It keeps a copy of the app's own screens
-//     and code on the phone, so MyWitness can start even with no data.
+//  1. OPENS THE APP WITH NO SIGNAL. It serves the app's own screens and code
+//     from the phone when there is no signal. The app saves them there itself
+//     after sign-in (src/lib/offline/warm.ts), because a background worker is
+//     stopped by the phone after about half a minute, too soon for the job.
 //     What is kept: empty page shells (they contain no one's records), the
 //     app's scripts and styles, and its icons. The person's own records are
 //     kept separately, by the app itself, in the phone's database.
@@ -18,10 +20,8 @@ const VERSION = new URL(self.location.href).searchParams.get("v") || "dev";
 const PAGES_CACHE = "mw-pages-" + VERSION;
 const ASSETS_CACHE = "mw-assets-v1";
 const FALLBACK_URL = "/offline.html";
-const META_URL = "/__mw-warm-meta";
 // With a saved copy of a page, wait this long for the network before using it.
 const NETWORK_TIMEOUT_MS = 4000;
-const WARM_EVERY_MS = 6 * 60 * 60 * 1000;
 
 // Screens with a fixed address. Saved ahead of time, refreshed whenever opened.
 const STATIC_ROUTES = [
@@ -45,22 +45,8 @@ const STATIC_ROUTES = [
   "/conversations/record",
 ];
 
-// Screens for one person / study / visit. One placeholder copy of each kind is
-// saved; the screen reads the real id from the address when it opens.
-const SHELL_ROUTES = [
-  "/people/_",
-  "/bible-studies/_",
-  "/bible-studies/_/session",
-  "/bible-studies/_/record",
-  "/return-visits/_",
-  "/return-visits/_/complete",
-  "/toolkit/_",
-  "/toolkit/_/edit",
-  "/notebook/_",
-  "/areas/_",
-];
-
-const WARM_ROUTES = STATIC_ROUTES.concat(SHELL_ROUTES);
+// Screens for one person / study / visit are served from one saved placeholder
+// each (see SHELL_RULES below); the app saves them (src/lib/offline/warm.ts).
 
 const SHELL_RULES = [
   [/^\/bible-studies\/[^/]+\/(session|record)$/, (m) => "/bible-studies/_/" + m[1]],
@@ -263,94 +249,6 @@ self.addEventListener("fetch", (event) => {
   }
 });
 
-// ---- Saving the app's screens ahead of time -------------------------------
-//
-// Done after the person signs in (the app asks), because the screens are only
-// served to someone who is signed in. The first time this downloads roughly
-// 0.5 MB; afterwards only what changed with a new version.
-
-const ASSET_PATTERN = /\/_next\/static\/[^"'\s<>\\)]+?\.(?:js|css|woff2?)/g;
-
-function findAssets(html) {
-  const found = new Set();
-  let m;
-  ASSET_PATTERN.lastIndex = 0;
-  while ((m = ASSET_PATTERN.exec(html)) !== null) found.add(m[0]);
-  return Array.from(found);
-}
-
-let warming = null;
-
-async function readWarmMeta() {
-  try {
-    const hit = await (await caches.open(PAGES_CACHE)).match(pageKey(META_URL));
-    return hit ? await hit.json() : null;
-  } catch {
-    return null;
-  }
-}
-
-function warm(force) {
-  if (warming) return warming;
-  warming = (async () => {
-    const meta = await readWarmMeta();
-    if (!force && meta && meta.version === VERSION && Date.now() - meta.at < WARM_EVERY_MS) {
-      return { skipped: true };
-    }
-    const pages = await caches.open(PAGES_CACHE);
-    const assets = await caches.open(ASSETS_CACHE);
-    const wanted = new Set();
-    let stored = 0;
-
-    for (const route of WARM_ROUTES) {
-      let response;
-      try {
-        response = await fetch(route, { credentials: "same-origin", redirect: "manual" });
-      } catch {
-        return { failed: "network" }; // signal dropped part-way; try again next time
-      }
-      if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
-        return { failed: "not-signed-in" };
-      }
-      if (!isCacheablePage(response)) continue;
-      await pages.put(pageKey(route), response.clone());
-      stored++;
-      findAssets(await response.text()).forEach((a) => wanted.add(a));
-    }
-
-    for (const asset of wanted) {
-      if (await assets.match(asset, { ignoreSearch: true })) continue;
-      try {
-        const response = await fetch(asset);
-        if (response.ok) await assets.put(asset, response);
-      } catch {
-        return { failed: "network" };
-      }
-    }
-
-    // Everything is saved: remember it, and tidy up older versions.
-    await pages.put(
-      pageKey(META_URL),
-      new Response(JSON.stringify({ version: VERSION, at: Date.now() }), {
-        headers: { "content-type": "application/json" },
-      })
-    );
-    for (const name of await caches.keys()) {
-      if (name.indexOf("mw-pages-") === 0 && name !== PAGES_CACHE) await caches.delete(name);
-    }
-    for (const request of await assets.keys()) {
-      const path = new URL(request.url).pathname;
-      if (path.indexOf("/_next/static/") === 0 && !wanted.has(path)) await assets.delete(request);
-    }
-    return { stored };
-  })()
-    .catch(() => ({ failed: "error" }))
-    .finally(() => {
-      warming = null;
-    });
-  return warming;
-}
-
 /** On sign-out: forget the saved screens (they hold no records, but the phone may be shared). */
 async function clearSavedPages() {
   for (const name of await caches.keys()) {
@@ -365,8 +263,7 @@ async function clearSavedPages() {
 
 self.addEventListener("message", (event) => {
   const data = event.data || {};
-  if (data.type === "warm") event.waitUntil(warm(false));
-  else if (data.type === "clear-private-caches") event.waitUntil(clearSavedPages());
+  if (data.type === "clear-private-caches") event.waitUntil(clearSavedPages());
 });
 
 // ---- Push notifications (reminders) ----------------------------------------

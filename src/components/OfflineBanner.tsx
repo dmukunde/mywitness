@@ -1,10 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { format, parseISO } from "date-fns";
 import { AlertCircle, CloudOff, RefreshCw } from "lucide-react";
 import { useApp } from "@/lib/app-context";
+import { useOfflineReadiness } from "@/lib/offline/readiness";
+
+/** Remembers that the "ready for use without signal" note has been shown once on this phone. */
+const READY_SEEN_KEY = "mw-offline-ready-seen";
+const seenListeners = new Set<() => void>();
+
+function readySeen(): boolean {
+  try {
+    return localStorage.getItem(READY_SEEN_KEY) === "1";
+  } catch {
+    return true; // can't remember it, so don't nag
+  }
+}
+
+function markReadySeen() {
+  try {
+    localStorage.setItem(READY_SEEN_KEY, "1");
+  } catch {
+    // Fine: it may show again next time.
+  }
+  seenListeners.forEach((l) => l());
+}
 
 /**
  * Tells the person, in plain words, what state their records are in:
@@ -26,6 +48,17 @@ export function OfflineBanner() {
     discardFailedChanges,
   } = useApp();
   const [busy, setBusy] = useState(false);
+  const readiness = useOfflineReadiness();
+  // The first time the app is fully saved on this phone, say so (once).
+  const seen = useSyncExternalStore(
+    (listener) => {
+      seenListeners.add(listener);
+      return () => seenListeners.delete(listener);
+    },
+    readySeen,
+    () => true
+  );
+  const readyNote = readiness.state === "ready" && !seen;
 
   if (demoMode) return null;
 
@@ -151,6 +184,42 @@ export function OfflineBanner() {
           className="min-h-9 rounded-full bg-white px-3 text-xs font-semibold text-sky-900 ring-1 ring-sky-200 disabled:opacity-60"
         >
           Send now
+        </button>
+      </div>
+    );
+  }
+
+  if (!offline && !needsSignIn && readiness.state === "working") {
+    banners.push(
+      <div
+        key="preparing"
+        role="status"
+        aria-live="polite"
+        className="rounded-xl bg-sky-50 px-3 py-2.5 text-xs text-sky-900 ring-1 ring-sky-200"
+      >
+        Getting MyWitness ready for use without signal ({readiness.done} of {readiness.total}).
+        Please keep the app open for a minute.
+      </div>
+    );
+  }
+
+  if (readyNote && !offline) {
+    banners.push(
+      <div
+        key="ready"
+        role="status"
+        className="flex items-start justify-between gap-3 rounded-xl bg-emerald-50 px-3 py-2.5 text-sm text-emerald-900 ring-1 ring-emerald-200"
+      >
+        <span>
+          <strong>Ready.</strong> MyWitness is saved on this phone and will now open
+          without signal.
+        </span>
+        <button
+          type="button"
+          onClick={markReadySeen}
+          className="min-h-9 shrink-0 rounded-full bg-white px-3 text-xs font-semibold text-emerald-900 ring-1 ring-emerald-200"
+        >
+          Got it
         </button>
       </div>
     );

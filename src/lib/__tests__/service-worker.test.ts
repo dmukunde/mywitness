@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import { SHELL_ROUTES, STATIC_ROUTES } from "@/lib/offline/warm";
 
 /**
  * Loads the real public/sw.js into a sandbox and plays out phone scenarios:
@@ -167,30 +168,21 @@ const text = async (p: Promise<Response> | null) => (await p!).text();
 describe("opening screens with no signal", () => {
   async function savedWorker() {
     const w = createWorker();
-    // Online: install, then save the screens (as the app asks after sign-in).
-    w.setNetwork(async (url) => {
-      if (url.includes("/_next/static/")) return new Response("/*code*/", { status: 200 });
-      if (url.endsWith("/offline.html")) return html("OFFLINE-PAGE");
-      const p = new URL(url).pathname;
-      return html(`SCREEN:${p}`, ["/_next/static/chunks/app.js?dpl=abc", "/_next/static/css/app.css"]);
-    });
-    await w.install();
-    const warm = w.dispatch("message", { data: { type: "warm" } });
-    await warm.settle();
+    w.setNetwork(async (url) => (url.endsWith("/offline.html") ? html("OFFLINE-PAGE") : html("x")));
+    await w.install(); // the worker keeps the friendly offline page itself
+    const pages = new Map<string, Response>();
+    for (const route of [...STATIC_ROUTES, ...SHELL_ROUTES]) {
+      pages.set(`${ORIGIN}${route}`, html(`SCREEN:${route}`));
+    }
+    pages.set(`${ORIGIN}/offline.html`, html("OFFLINE-PAGE"));
+    w.stores.set("mw-pages-v1", pages);
+    w.stores.set(
+      "mw-assets-v1",
+      new Map([[`${ORIGIN}/_next/static/chunks/app.js`, new Response("/*code*/", { status: 200 })]])
+    );
     w.goOffline();
     return w;
   }
-
-  it("saves every fixed screen and one placeholder for each kind of record screen", async () => {
-    const w = await savedWorker();
-    const pages = w.cached("mw-pages-v1").map((u) => new URL(u).pathname);
-    for (const p of ["/today", "/calendar", "/people", "/people/new", "/bible-studies", "/settings", "/toolkit"]) {
-      expect(pages).toContain(p);
-    }
-    for (const p of ["/people/_", "/bible-studies/_", "/bible-studies/_/session", "/return-visits/_", "/toolkit/_", "/toolkit/_/edit"]) {
-      expect(pages).toContain(p);
-    }
-  });
 
   it("opens a saved screen with no signal", async () => {
     const w = await savedWorker();
@@ -239,7 +231,7 @@ describe("opening screens with no signal", () => {
     const w = await savedWorker();
     const d = w.subresource("/_next/static/chunks/app.js?dpl=zzz");
     expect(await text(d.responded())).toBe("/*code*/");
-    expect(w.cached("mw-assets-v1").some((u) => u.endsWith("/_next/static/css/app.css"))).toBe(true);
+    expect(w.cached("mw-assets-v1").some((u) => u.endsWith("/_next/static/chunks/app.js"))).toBe(true);
   });
 });
 
@@ -329,65 +321,7 @@ describe("a weak signal", () => {
   });
 });
 
-describe("saving the screens ahead of time", () => {
-  const signedInNetwork = (url: string) => {
-    if (url.includes("/_next/static/")) return Promise.resolve(new Response("/*code*/", { status: 200 }));
-    const p = new URL(url).pathname;
-    return Promise.resolve(html(`SCREEN:${p}`, ["/_next/static/chunks/a.js", "/_next/static/chunks/b.js"]));
-  };
-
-  it("does nothing useful and loses nothing when the person is not signed in", async () => {
-    const w = createWorker();
-    w.setNetwork(async () => new Response(null, { status: 302, headers: { location: "/login" } }));
-    const d = w.dispatch("message", { data: { type: "warm" } });
-    await d.settle();
-    expect(w.cached("mw-pages-v1").filter((u) => !u.endsWith("offline.html"))).toEqual([]);
-  });
-
-  it("stops quietly when the signal drops part-way, and tries again next time", async () => {
-    const w = createWorker();
-    let calls = 0;
-    w.setNetwork(async (url) => {
-      if (++calls > 3) throw new TypeError("Failed to fetch");
-      return html(`SCREEN:${new URL(url).pathname}`);
-    });
-    await w.dispatch("message", { data: { type: "warm" } }).settle();
-    // incomplete, so it is not marked as done
-    expect(w.cached("mw-pages-v1").some((u) => u.endsWith("__mw-warm-meta"))).toBe(false);
-
-    w.setNetwork(signedInNetwork);
-    await w.dispatch("message", { data: { type: "warm" } }).settle();
-    expect(w.cached("mw-pages-v1").some((u) => u.endsWith("__mw-warm-meta"))).toBe(true);
-  });
-
-  it("does not download everything again within a few hours", async () => {
-    const w = createWorker();
-    w.setNetwork(signedInNetwork);
-    await w.dispatch("message", { data: { type: "warm" } }).settle();
-    const before = w.fetched.length;
-    await w.dispatch("message", { data: { type: "warm" } }).settle();
-    expect(w.fetched.length).toBe(before);
-  });
-
-  it("downloads each script and style once, however many screens use it", async () => {
-    const w = createWorker();
-    w.setNetwork(signedInNetwork);
-    await w.dispatch("message", { data: { type: "warm" } }).settle();
-    const code = w.fetched.filter((u) => u.includes("/_next/static/"));
-    expect(code).toHaveLength(2);
-  });
-
-  it("removes the previous release's screens and unused code once the new ones are saved", async () => {
-    const w = createWorker("v2");
-    w.stores.set("mw-pages-v1", new Map([[`${ORIGIN}/today`, html("OLD")]]));
-    w.stores.set("mw-assets-v1", new Map([[`${ORIGIN}/_next/static/chunks/old.js`, new Response("old")]]));
-    w.setNetwork(signedInNetwork);
-    await w.dispatch("message", { data: { type: "warm" } }).settle();
-    expect(w.stores.has("mw-pages-v1")).toBe(false);
-    expect(w.cached("mw-assets-v1").some((u) => u.endsWith("old.js"))).toBe(false);
-    expect(w.cached("mw-assets-v1").some((u) => u.endsWith("a.js"))).toBe(true);
-  });
-
+describe("updating to a new release", () => {
   it("keeps the previous release's screens usable until the new ones are saved", async () => {
     const w = createWorker("v2");
     w.stores.set("mw-pages-v1", new Map([[`${ORIGIN}/today`, html("OLD-BUT-WORKS")]]));
@@ -416,11 +350,10 @@ describe("what it leaves alone", () => {
 describe("signing out", () => {
   it("forgets the saved screens but keeps the app's code", async () => {
     const w = createWorker();
-    w.setNetwork(async (url) =>
-      url.includes("/_next/") ? new Response("code") : html(`SCREEN:${new URL(url).pathname}`, ["/_next/static/chunks/a.js"])
-    );
+    w.setNetwork(async () => html("x"));
     await w.install();
-    await w.dispatch("message", { data: { type: "warm" } }).settle();
+    w.stores.get("mw-pages-v1")!.set(`${ORIGIN}/today`, html("SCREEN"));
+    w.stores.set("mw-assets-v1", new Map([[`${ORIGIN}/_next/static/chunks/a.js`, new Response("code")]]));
     await w.dispatch("message", { data: { type: "clear-private-caches" } }).settle();
     const pages = w.cached("mw-pages-v1").map((u) => new URL(u).pathname);
     expect(pages).not.toContain("/today");

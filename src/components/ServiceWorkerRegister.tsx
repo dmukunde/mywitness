@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { buildId } from "@/lib/offline/build-id";
 
 /** Setting this in the browser's storage switches the worker off (an emergency off switch for support). */
 const KILL_SWITCH = "mw-no-service-worker";
@@ -38,7 +39,7 @@ export function ServiceWorkerRegister() {
       return;
     }
 
-    const version = encodeURIComponent(process.env.NEXT_PUBLIC_BUILD_ID || "1");
+    const version = encodeURIComponent(buildId());
     navigator.serviceWorker.register(`/sw.js?v=${version}`).catch((err) => {
       console.error("[MyWitness service worker]", err);
     });

@@ -17,6 +17,8 @@ import { BackupRestore } from "@/components/BackupRestore";
 import { DuplicateCleanup } from "@/components/DuplicateCleanup";
 import { ContactHealth } from "@/components/ContactHealth";
 import { VoiceNoteNoticeSheet } from "@/components/VoiceNoteNotice";
+import { offlineSupported, prepareOffline, useOfflineReadiness } from "@/lib/offline/readiness";
+import { format as formatDate, parseISO as parseIsoDate } from "date-fns";
 import { todayISO } from "@/lib/utils";
 import { formatDbError } from "@/lib/db-errors";
 
@@ -59,6 +61,7 @@ export default function SettingsPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   const [voiceNoticeOpen, setVoiceNoticeOpen] = useState(false);
+  const readiness = useOfflineReadiness();
   const [manualHours, setManualHours] = useState(0);
   const [manualMinutes, setManualMinutes] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
@@ -353,6 +356,48 @@ export default function SettingsPage() {
           </Button>
         </Card>
       </section>
+
+      {!demoMode && (
+        <section>
+          <SectionTitle title="Using MyWitness without signal" />
+          <Card className="space-y-3 text-sm text-stone-700">
+            {!offlineSupported() ? (
+              <p>This browser can&apos;t save MyWitness for use without signal.</p>
+            ) : readiness.state === "ready" ? (
+              <p>
+                <strong className="text-emerald-800">Ready.</strong> MyWitness is saved on
+                this phone and opens without signal
+                {readiness.savedAt
+                  ? ` (saved ${formatDate(parseIsoDate(readiness.savedAt), "EEE d MMM, h:mm a")})`
+                  : ""}
+                . Ministry time you track offline is sent when you have signal.
+              </p>
+            ) : readiness.state === "working" ? (
+              <p>
+                Getting ready… {readiness.done} of {readiness.total}. Please keep the app
+                open with signal for a minute.
+              </p>
+            ) : (
+              <p>
+                <strong className="text-amber-800">Not ready yet.</strong> Open the app with
+                signal and keep it open for a minute so it can save itself on this phone.
+                {readiness.state === "failed" && readiness.reason === "network"
+                  ? " The signal dropped last time; it will carry on when you have signal."
+                  : ""}
+              </p>
+            )}
+            {offlineSupported() && readiness.state !== "working" && (
+              <Button
+                variant="secondary"
+                className="w-full"
+                onClick={() => void prepareOffline(true)}
+              >
+                {readiness.state === "ready" ? "Check again" : "Get ready now"}
+              </Button>
+            )}
+          </Card>
+        </section>
+      )}
 
       <section>
         <SectionTitle title="Audio privacy" />

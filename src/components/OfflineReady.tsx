@@ -1,26 +1,33 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useApp } from "@/lib/app-context";
+import { checkReadiness, offlineSupported, prepareOffline, getReadiness } from "@/lib/offline/readiness";
+
+/** While the screens aren't saved yet, try again this often (the app stays open on screen). */
+const RETRY_MS = 2 * 60 * 1000;
 
 /**
- * Once someone is signed in and their records have loaded, asks the service
- * worker to save the app's screens on the phone so MyWitness can open with no
- * signal. Done after sign-in because the screens are only served to a signed-in
- * person. It is quick after the first time, and does nothing if it already ran.
+ * Once someone is signed in and their records have loaded, saves the app's
+ * screens on the phone so MyWitness can open with no signal. Done after sign-in
+ * because the screens are only served to a signed-in person. Quick after the
+ * first time. If the signal drops part-way, it carries on later.
  */
 export function OfflineReady() {
   const { user, demoMode, online, loadState } = useApp();
-  const asked = useRef(false);
 
   useEffect(() => {
-    if (asked.current || demoMode || !user || !online || loadState !== "ready") return;
-    if (process.env.NODE_ENV !== "production") return;
-    if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
-    asked.current = true;
-    void navigator.serviceWorker.ready
-      .then((registration) => registration.active?.postMessage({ type: "warm" }))
-      .catch(() => undefined);
+    if (demoMode || !user || !offlineSupported()) return;
+    void checkReadiness();
+    if (!online || loadState !== "ready") return;
+
+    void prepareOffline();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible" && getReadiness().state !== "ready") {
+        void prepareOffline();
+      }
+    }, RETRY_MS);
+    return () => window.clearInterval(timer);
   }, [user, demoMode, online, loadState]);
 
   return null;

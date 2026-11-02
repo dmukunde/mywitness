@@ -80,3 +80,24 @@ export function withTimeout<T>(promise: PromiseLike<T>, ms: number): Promise<T> 
     );
   });
 }
+
+const MISSING_CODE =
+  /loading chunk|chunkloaderror|loading css chunk|failed to fetch dynamically imported module|importing a module script failed|failed to load chunk/i;
+
+/** True when a screen failed because its code could not be loaded (typically: not saved yet, and no signal). */
+export function isMissingCodeError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { name?: unknown; message?: unknown };
+  return String(e.name ?? "") === "ChunkLoadError" || MISSING_CODE.test(String(e.message ?? ""));
+}
+
+/** A short, safe line describing a crash, for the person to read to support. */
+export function describeCrash(err: unknown): string {
+  if (!err || typeof err !== "object") return "unknown";
+  const e = err as { name?: unknown; message?: unknown };
+  const name = String(e.name ?? "Error").slice(0, 40);
+  const message = String(e.message ?? "")
+    .replace(/\s+/g, " ")
+    .slice(0, 110);
+  return message ? `${name}: ${message}` : name;
+}
