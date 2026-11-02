@@ -26,6 +26,9 @@ import {
 import { InterestBadge } from "@/components/InterestBadge";
 import { useApp } from "@/lib/app-context";
 import { useVoiceRecorder, type RecorderStatus } from "@/hooks/useVoiceRecorder";
+import { useVoiceNoteNotice } from "@/components/VoiceNoteNotice";
+import { voiceNoteErrorMessage } from "@/lib/ai/client";
+import { VOICE_NOTE_MAX_SECONDS } from "@/lib/ai/limits";
 import {
   EMPTY_CONVERSATION_FORM,
   type ConversationExtraction,
@@ -57,11 +60,15 @@ function RecordConversationInner() {
   const submissionId = useRef<string | null>(null);
   const guard = useSingleFlight();
   const { ask, dialog } = useSamePersonPrompt();
-  const processRef = useRef<(blob: Blob) => Promise<void>>(async () => {});
+  const { needsNotice, noticeDialog } = useVoiceNoteNotice();
+  const processRef = useRef<(blob: Blob, durationMs?: number) => Promise<void>>(
+    async () => {}
+  );
 
   const {
     status,
     setStatus,
+    durationMs,
     durationLabel,
     error,
     setError,
@@ -71,13 +78,17 @@ function RecordConversationInner() {
     cancel,
     finish,
   } = useVoiceRecorder({
-    onComplete: (blob) => {
-      void processRef.current(blob);
+    onComplete: (blob, ms) => {
+      void processRef.current(blob, ms);
     },
   });
+  const secondsLeft = Math.max(
+    0,
+    VOICE_NOTE_MAX_SECONDS - Math.floor(durationMs / 1000)
+  );
 
   useEffect(() => {
-    processRef.current = async (blob: Blob) => {
+    processRef.current = async (blob: Blob, durationMs?: number) => {
       try {
         if (demoMode) {
           setStatus("transcribing");
@@ -123,6 +134,9 @@ function RecordConversationInner() {
         setStatus("uploading");
         const fd = new FormData();
         fd.append("audio", blob, `conversation-${Date.now()}.webm`);
+        if (durationMs) {
+          fd.append("durationSeconds", String(Math.round(durationMs / 1000)));
+        }
         if (personId) fd.append("personId", personId);
         fd.append("localDate", todayISO());
         fd.append(
@@ -133,8 +147,7 @@ function RecordConversationInner() {
         setStatus("transcribing");
         const res = await fetch("/api/transcribe", { method: "POST", body: fd });
         if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || "Transcription failed");
+          throw new Error(await voiceNoteErrorMessage(res));
         }
         setStatus("extracting");
         const data = (await res.json()) as {
@@ -407,9 +420,10 @@ function RecordConversationInner() {
   return (
     <div className="animate-fade-up space-y-6">
       <PageHeader
-        title="Record Conversation"
-        subtitle="Capture what was said — review before saving"
+        title="Voice Note"
+        subtitle="Say what happened in your own words, then review before saving"
       />
+      {noticeDialog}
 
       <Card className="flex flex-col items-center py-10">
         <div className="relative flex h-28 w-28 items-center justify-center">
@@ -443,6 +457,12 @@ function RecordConversationInner() {
         <p className="mt-2 text-sm capitalize text-stone-500">
           {statusLabel(status)}
         </p>
+        {status === "recording" && secondsLeft <= 60 && (
+          <p className="mt-1 text-xs font-medium text-amber-700">
+            {secondsLeft} seconds left. Your note will stop and be processed
+            automatically.
+          </p>
+        )}
         {error && (
           <p className="mt-3 max-w-xs text-center text-sm text-rose-700">
             {error}
@@ -452,9 +472,15 @@ function RecordConversationInner() {
 
       {status === "idle" && (
         <div className="space-y-2">
-          <Button variant="record" size="lg" className="w-full" onClick={start}>
+          <Button
+            variant="record"
+            size="lg"
+            className="w-full"
+            onClick={start}
+            disabled={needsNotice}
+          >
             <Mic className="h-5 w-5" />
-            Start recording
+            Start voice note
           </Button>
           {demoMode && (
             <Button
@@ -597,17 +623,17 @@ function isProcessing(status: RecorderStatus) {
 function statusLabel(status: RecorderStatus) {
   switch (status) {
     case "idle":
-      return "Ready to record";
+      return "Ready when you are";
     case "recording":
       return "Recording…";
     case "paused":
       return "Paused";
     case "uploading":
-      return "Uploading audio…";
+      return "Sending your note…";
     case "transcribing":
-      return "Transcribing…";
+      return "Turning your voice into text…";
     case "extracting":
-      return "Extracting details…";
+      return "Picking out the details…";
     case "complete":
       return "Ready for review";
     case "failed":

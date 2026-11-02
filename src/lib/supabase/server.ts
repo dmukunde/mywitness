@@ -41,6 +41,15 @@ export function createServiceClient() {
   );
 }
 
+/** The server-side client if its key is configured, otherwise null (never throws). */
+export function createServiceClientOrNull() {
+  try {
+    return createServiceClient();
+  } catch {
+    return null;
+  }
+}
+
 export function isOpenAIConfigured() {
   const key = process.env.OPENAI_API_KEY?.trim() || "";
   return Boolean(key) && !key.includes("your-openai-key") && key.startsWith("sk-");

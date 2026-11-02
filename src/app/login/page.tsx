@@ -271,8 +271,8 @@ function LoginForm() {
           Personal Ministry Companion
         </p>
         <p className="mt-3 max-w-sm text-base leading-relaxed text-stone-600">
-          Record conversations, prepare return visits, and remember what
-          matters — privately, on your own device.
+          Dictate or type your notes, prepare return visits, and remember what
+          matters, privately in your own account.
         </p>
       </div>
 

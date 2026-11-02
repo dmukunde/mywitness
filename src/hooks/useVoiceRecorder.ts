@@ -2,6 +2,10 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { formatDurationFromMs } from "@/lib/utils";
+import {
+  VOICE_NOTE_BITS_PER_SECOND,
+  VOICE_NOTE_MAX_SECONDS,
+} from "@/lib/ai/limits";
 
 export type RecorderStatus =
   | "idle"
@@ -14,8 +18,11 @@ export type RecorderStatus =
   | "failed";
 
 interface UseVoiceRecorderOptions {
-  onComplete?: (blob: Blob) => void;
+  /** Called with the finished recording and how long it ran, in milliseconds. */
+  onComplete?: (blob: Blob, durationMs: number) => void;
 }
+
+const MAX_MS = VOICE_NOTE_MAX_SECONDS * 1000;
 
 export function useVoiceRecorder({ onComplete }: UseVoiceRecorderOptions = {}) {
   const [status, setStatus] = useState<RecorderStatus>("idle");
@@ -27,6 +34,8 @@ export function useVoiceRecorder({ onComplete }: UseVoiceRecorderOptions = {}) {
   const startedAtRef = useRef<number>(0);
   const accumulatedRef = useRef<number>(0);
   const timerRef = useRef<number | null>(null);
+  // Lets the timer end the recording at the limit without a circular dependency.
+  const finishRef = useRef<() => void>(() => undefined);
 
   const clearTimer = () => {
     if (timerRef.current) {
@@ -36,7 +45,10 @@ export function useVoiceRecorder({ onComplete }: UseVoiceRecorderOptions = {}) {
   };
 
   const tick = useCallback(() => {
-    setDurationMs(accumulatedRef.current + (Date.now() - startedAtRef.current));
+    const total = accumulatedRef.current + (Date.now() - startedAtRef.current);
+    setDurationMs(Math.min(total, MAX_MS));
+    // A voice note stops by itself at the limit and is processed as normal.
+    if (total >= MAX_MS) finishRef.current();
   }, []);
 
   const startTimer = useCallback(() => {
@@ -66,10 +78,12 @@ export function useVoiceRecorder({ onComplete }: UseVoiceRecorderOptions = {}) {
           ? "audio/mp4"
           : undefined;
 
-      const recorder = new MediaRecorder(
-        stream,
-        mimeType ? { mimeType } : undefined
-      );
+      // A modest, speech-quality bitrate keeps even a full-length note small
+      // enough to upload, whichever phone it was recorded on.
+      const recorder = new MediaRecorder(stream, {
+        ...(mimeType ? { mimeType } : {}),
+        audioBitsPerSecond: VOICE_NOTE_BITS_PER_SECOND,
+      });
       mediaRecorderRef.current = recorder;
 
       recorder.ondataavailable = (e) => {
@@ -82,7 +96,7 @@ export function useVoiceRecorder({ onComplete }: UseVoiceRecorderOptions = {}) {
         const blob = new Blob(chunksRef.current, {
           type: recorder.mimeType || "audio/webm",
         });
-        onComplete?.(blob);
+        onComplete?.(blob, accumulatedRef.current);
       };
 
       recorder.start(1000);
@@ -132,16 +146,18 @@ export function useVoiceRecorder({ onComplete }: UseVoiceRecorderOptions = {}) {
   const finish = useCallback(() => {
     const recorder = mediaRecorderRef.current;
     if (!recorder || recorder.state === "inactive") return;
-    if (recorder.state === "paused") {
-      accumulatedRef.current += 0;
-    } else {
+    if (recorder.state !== "paused") {
       accumulatedRef.current += Date.now() - startedAtRef.current;
     }
     clearTimer();
-    setDurationMs(accumulatedRef.current);
+    setDurationMs(Math.min(accumulatedRef.current, MAX_MS));
     recorder.stop();
     setStatus("uploading");
   }, []);
+
+  useEffect(() => {
+    finishRef.current = finish;
+  }, [finish]);
 
   useEffect(() => {
     return () => {
@@ -162,6 +178,6 @@ export function useVoiceRecorder({ onComplete }: UseVoiceRecorderOptions = {}) {
     resume,
     cancel,
     finish,
-    maxSupportedMs: 10 * 60 * 1000,
+    maxSupportedMs: MAX_MS,
   };
 }

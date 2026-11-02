@@ -16,6 +16,9 @@ import { useApp } from "@/lib/app-context";
 import { StudySessionForm } from "@/components/StudySessionForm";
 import { Button, Card, EmptyState, PageHeader } from "@/components/ui";
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
+import { useVoiceNoteNotice } from "@/components/VoiceNoteNotice";
+import { voiceNoteErrorMessage } from "@/lib/ai/client";
+import { VOICE_NOTE_MAX_SECONDS } from "@/lib/ai/limits";
 import { mapExtractionToStudySession } from "@/lib/ai/study-extraction";
 import { scripturesToString, todayISO } from "@/lib/utils";
 import type { BibleStudySessionFormData } from "@/lib/types";
@@ -38,11 +41,15 @@ export default function RecordStudySessionPage() {
     : null;
 
   const [form, setForm] = useState<BibleStudySessionFormData | null>(null);
-  const processRef = useRef<(blob: Blob) => Promise<void>>(async () => {});
+  const { needsNotice, noticeDialog } = useVoiceNoteNotice();
+  const processRef = useRef<(blob: Blob, durationMs?: number) => Promise<void>>(
+    async () => {}
+  );
 
   const {
     status,
     setStatus,
+    durationMs,
     durationLabel,
     error,
     setError,
@@ -52,13 +59,17 @@ export default function RecordStudySessionPage() {
     cancel,
     finish,
   } = useVoiceRecorder({
-    onComplete: (blob) => {
-      void processRef.current(blob);
+    onComplete: (blob, ms) => {
+      void processRef.current(blob, ms);
     },
   });
+  const secondsLeft = Math.max(
+    0,
+    VOICE_NOTE_MAX_SECONDS - Math.floor(durationMs / 1000)
+  );
 
   useEffect(() => {
-    processRef.current = async (blob: Blob) => {
+    processRef.current = async (blob: Blob, durationMs?: number) => {
       if (!study) return;
       try {
         if (demoMode) {
@@ -108,6 +119,9 @@ export default function RecordStudySessionPage() {
         setStatus("uploading");
         const fd = new FormData();
         fd.append("audio", blob, `study-${Date.now()}.webm`);
+        if (durationMs) {
+          fd.append("durationSeconds", String(Math.round(durationMs / 1000)));
+        }
         fd.append("personId", study.person_id);
         fd.append("localDate", todayISO());
         fd.append(
@@ -117,8 +131,7 @@ export default function RecordStudySessionPage() {
         setStatus("transcribing");
         const res = await fetch("/api/transcribe", { method: "POST", body: fd });
         if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || "Transcription failed");
+          throw new Error(await voiceNoteErrorMessage(res));
         }
         setStatus("extracting");
         const data = (await res.json()) as {
@@ -201,10 +214,11 @@ export default function RecordStudySessionPage() {
   return (
     <div className="animate-fade-up space-y-6">
       <PageHeader
-        title="Record study session"
+        title="Voice note: study"
         subtitle={`${person?.name || "Student"} · ${study.publication}`}
         accent="gold"
       />
+      {noticeDialog}
 
       <Card className="flex flex-col items-center py-10 ring-amber-100">
         <div className="relative flex h-28 w-28 items-center justify-center">
@@ -235,12 +249,19 @@ export default function RecordStudySessionPage() {
           {durationLabel}
         </p>
         <p className="mt-2 text-sm text-stone-500">
-          {status === "idle" && "Tap record when the study begins"}
+          {status === "idle" &&
+            "Tap start, then say how the study went, in your own words"}
           {status === "recording" && "Recording…"}
           {status === "paused" && "Paused"}
-          {isProcessing(status) && "Processing with AI…"}
+          {isProcessing(status) && "Turning your voice into notes…"}
           {status === "failed" && "Something went wrong"}
         </p>
+        {status === "recording" && secondsLeft <= 60 && (
+          <p className="mt-1 text-xs font-medium text-amber-700">
+            {secondsLeft} seconds left. Your note will stop and be processed
+            automatically.
+          </p>
+        )}
       </Card>
 
       {error && (
@@ -254,9 +275,10 @@ export default function RecordStudySessionPage() {
           <Button
             className="w-full bg-amber-700 hover:bg-amber-800"
             onClick={() => void start()}
+            disabled={needsNotice}
           >
             <Mic className="h-5 w-5" />
-            Start recording
+            Start voice note
           </Button>
         ) : null}
         {status === "recording" && (

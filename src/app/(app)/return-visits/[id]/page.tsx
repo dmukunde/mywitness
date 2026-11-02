@@ -248,7 +248,7 @@ export default function ReturnVisitPrepPage() {
               className="block"
             >
               <Button variant="record" className="w-full">
-                Record new conversation
+                Add a voice note
               </Button>
             </Link>
             <Link

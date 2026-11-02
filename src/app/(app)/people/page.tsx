@@ -349,7 +349,7 @@ export default function PeoplePage() {
       ) : filtered.length === 0 ? (
         <EmptyState
           title="No people found"
-          description="Add a person or record a conversation to get started."
+          description="Add a person or write a note to get started."
           action={
             <Link href="/people/new">
               <Button>Add Person</Button>

@@ -16,6 +16,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { BackupRestore } from "@/components/BackupRestore";
 import { DuplicateCleanup } from "@/components/DuplicateCleanup";
 import { ContactHealth } from "@/components/ContactHealth";
+import { VoiceNoteNoticeSheet } from "@/components/VoiceNoteNotice";
 import { todayISO } from "@/lib/utils";
 import { formatDbError } from "@/lib/db-errors";
 
@@ -55,6 +56,7 @@ export default function SettingsPage() {
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
+  const [voiceNoticeOpen, setVoiceNoticeOpen] = useState(false);
   const [manualHours, setManualHours] = useState(0);
   const [manualMinutes, setManualMinutes] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
@@ -355,12 +357,21 @@ export default function SettingsPage() {
               }
             />
             <span>
-              Default to keeping audio after transcription. You can still choose
-              per conversation. Otherwise audio is deleted after successful
-              transcription.
+              Keep my voice recordings by default. You can still choose for each
+              note. Otherwise a recording is deleted once you save the note.
             </span>
           </label>
+          <button
+            type="button"
+            onClick={() => setVoiceNoticeOpen(true)}
+            className="mt-3 text-sm font-medium text-emerald-800 underline decoration-emerald-200 underline-offset-2"
+          >
+            How voice notes are processed
+          </button>
         </Card>
+        {voiceNoticeOpen && (
+          <VoiceNoteNoticeSheet onClose={() => setVoiceNoticeOpen(false)} />
+        )}
       </section>
 
       <section>

@@ -162,7 +162,7 @@ function TodayInner() {
           onClick={() => router.push("/conversations/record")}
         >
           <Mic className="h-6 w-6" />
-          Record Conversation
+          Voice Note
         </Button>
         <Button
           variant="secondary"
@@ -397,7 +397,7 @@ function TodayInner() {
         {todaysConversations.length === 0 ? (
           <EmptyState
             title="No conversations yet today"
-            description="Tap Record Conversation to capture one in seconds."
+            description="Tap Voice Note to dictate one in seconds."
           />
         ) : (
           <div className="space-y-2">

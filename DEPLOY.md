@@ -18,7 +18,7 @@ Copy `.env.example` → `.env.local` and fill real values. Restart `npm run dev`
 
 ## SQL migrations (required once per Supabase project)
 
-In Supabase → **SQL Editor** → New query → paste and run each file **in order**, `001` through `012`:
+In Supabase → **SQL Editor** → New query → paste and run each file **in order**, `001` through `020`:
 
 | # | File | What it does |
 |---|---|---|
@@ -34,6 +34,14 @@ In Supabase → **SQL Editor** → New query → paste and run each file **in or
 | 010 | `010_bible_studies_archive.sql` | Soft-delete/archive for Bible Studies |
 | 011 | `011_user_settings_service_year.sql` | Configurable service-year start month |
 | 012 | `012_study_notes.sql` | Study Notebook — Family Worship, meeting prep, convention, and personal study notes |
+| 013 | `013_prevent_duplicate_scheduling.sql` | Database-level guard against the same visit/study being scheduled twice |
+| 014 | `014_teaching_toolkit.sql` | My Teaching Toolkit entries |
+| 015 | `015_contact_guardrails.sql` | Duplicate-name guard, contact merge / undo functions |
+| 016 | `016_personal_reminders.sql` | Personal reminders + push notification devices |
+| 017 | `017_reminders_follow_merges.sql` | Merging contacts also moves their reminders |
+| 018 | `018_data_api_grants.sql` | Explicit Data API grants for every table (needed for new Supabase projects) |
+| 019 | `019_ministry_days.sql` | Ministry days on people; merge combines days |
+| 020 | `020_ai_usage_limits.sql` | Voice-note fair-use limits (usage log + server-only check functions) |
 
 Every migration file is written to be safe to re-run (`IF NOT EXISTS` / `ON CONFLICT DO NOTHING`), but **don't blindly rerun them against a project that's already up to date** — check first. To see what a given project already has, open **Supabase → Table Editor** and confirm: does `bible_studies` exist (005)? Does `people` have a `phone_number` column (007)? Does `bible_studies` have an `archived_at` column (010)? Does `user_settings` have `service_year_start_month` (011)? Does `study_notes` exist (012)? If all of those are present, the project is fully migrated — only run whichever numbered files are missing, in order.
 
@@ -136,3 +144,48 @@ Reminders work without any of this (they show on Home and the Reminders screen, 
 Then open **Reminders → Notifications → Turn on notifications**, and tap **Send a test** to confirm it reaches the device. On iPhone/iPad the app must first be added to the Home Screen (Share → Add to Home Screen).
 
 How it stays reliable: each due reminder is claimed in the database (`notified_at`) before it is sent, so overlapping runs can't send it twice; each notification also carries the reminder's id as its tag, so a device shows one notification per reminder; a device the push service reports as gone is removed automatically.
+
+## Voice-note limits (OpenAI cost protection)
+
+Voice notes call OpenAI, which costs money, so the server limits how much any one account can use. Everything is enforced on the server; the app only mirrors the 10-minute recording length.
+
+**Needs migration 020.** Until it has been run, the server falls back to conservative per-instance limits (it never becomes unlimited), and logs `[ai-usage] database limits not available (run migration 020)`.
+
+**Built-in limits (per person unless stated):**
+
+| Limit | Default | Setting in Vercel (all optional) |
+|---|---|---|
+| Requests per minute | 5 | `AI_LIMIT_PER_MINUTE` |
+| Voice notes per rolling 24 hours | 40 | `AI_LIMIT_DAILY_TRANSCRIPTIONS` |
+| Text extractions per rolling 24 hours | 80 | `AI_LIMIT_DAILY_EXTRACTIONS` |
+| Minutes of audio per rolling 24 hours | 120 | `AI_LIMIT_DAILY_AUDIO_MINUTES` |
+| Everyone together per rolling 24 hours | 2000 | `AI_LIMIT_GLOBAL_DAILY` |
+| One voice note | 10 minutes, 4 MB | fixed in `src/lib/ai/limits.ts` |
+| Text sent for extraction | 15,000 characters | fixed in `src/lib/ai/limits.ts` |
+
+A setting must be a whole number above zero; anything else is ignored and the default is used.
+
+**Emergency off switch:** set `AI_DISABLED=1` in Vercel and redeploy. Voice notes pause for everyone with a friendly message; typing notes still works.
+
+**Seeing usage (counts only, never content)** — run in the Supabase SQL Editor:
+
+```sql
+select date_trunc('day', created_at) as day, kind, count(*) as requests,
+       sum(audio_seconds) / 60 as audio_minutes
+from ai_usage_events
+where not released
+group by 1, 2
+order by 1 desc, 2;
+```
+
+The server log also has one `[ai-usage]` line per request (kind, outcome, a short account id prefix, audio seconds, sizes), with no audio, transcripts, names or notes.
+
+**Also set, in your OpenAI account (only you can):** a monthly budget with an email alert, and ideally a separate project for MyWitness's key. See `audit/Dashboard-Checklist.md`.
+
+## Security headers
+
+`next.config.ts` sends a Content-Security-Policy and other protective headers on every response (built in `src/lib/security-headers.ts`, with tests). Browsers may only connect to the app itself and your Supabase project; OpenAI is called only by the server. If a feature that needs a new outside address is ever added, it must be added there deliberately.
+
+## Who can open which pages
+
+`src/lib/route-access.ts` is the single list of pages that work without signing in (`/privacy`, `/terms`, `/support`, `/delete-account-info`, plus the service worker and manifest). Everything else needs a session, and API routes answer unauthenticated calls with a plain 401.

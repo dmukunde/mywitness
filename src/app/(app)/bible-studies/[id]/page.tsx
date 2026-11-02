@@ -225,7 +225,7 @@ export default function BibleStudyProfilePage() {
       <div className="space-y-2">
         <Link href={`/bible-studies/${study.id}/record`} className="block">
           <Button className="w-full bg-amber-700 hover:bg-amber-800">
-            Record study by voice
+            Voice note for this study
           </Button>
         </Link>
         <Link href={`/bible-studies/${study.id}/session`} className="block">

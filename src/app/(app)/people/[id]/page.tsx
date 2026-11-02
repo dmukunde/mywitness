@@ -442,7 +442,7 @@ export default function PersonProfilePage() {
       <div className="grid grid-cols-2 gap-2">
         <Link href={`/conversations/record?personId=${person.id}`}>
           <Button variant="record" className="w-full" size="sm">
-            Record
+            Voice note
           </Button>
         </Link>
         <Link href={`/conversations/new?personId=${person.id}`}>
