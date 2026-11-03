@@ -51,10 +51,22 @@ export function classifyFailure(err: unknown): FailureKind {
 export const OFFLINE_MESSAGE =
   "You're offline, so this couldn't be saved. Please try again when you have signal.";
 
+/** What a refusal means, in words the person can act on. */
+export const DUPLICATE_PERSON_MESSAGE =
+  'You already have someone with this name. Check People, then add them again and choose "different person".';
+
 /** A short, safe description of why something was refused, for the person to read. */
 export function describeRefusal(err: unknown): string {
   if (err && typeof err === "object") {
-    const msg = String((err as ErrorLike).message ?? "").trim();
+    const e = err as ErrorLike;
+    const msg = String(e.message ?? "").trim();
+    if (/possible_duplicate_person/i.test(msg)) return DUPLICATE_PERSON_MESSAGE;
+    if (e.code === "23503" || /foreign key/i.test(msg)) {
+      return "This refers to something that is no longer on your account.";
+    }
+    if (e.code === "42501" || /row-level security|permission denied/i.test(msg)) {
+      return "Your account didn't allow this change. Please sign in again.";
+    }
     if (msg && !/^[{\[]/.test(msg)) return msg.slice(0, 160);
   }
   return "The server did not accept this change.";

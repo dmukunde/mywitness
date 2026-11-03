@@ -61,7 +61,8 @@ import {
   saveSnapshot,
   type Snapshot,
 } from "@/lib/offline/snapshot";
-import { isNetworkError, withTimeout } from "@/lib/offline/errors";
+import { DUPLICATE_PERSON_MESSAGE, isNetworkError, withTimeout } from "@/lib/offline/errors";
+import { buildPersonInsert, buildPersonUpdate, withDetails } from "@/lib/offline/person-changes";
 import {
   dismissRemindersForVisits,
   saveBibleStudyDemo,
@@ -324,6 +325,27 @@ async function sendOutboxOp(op: OutboxOp): Promise<void> {
       status,
     });
   }
+
+  // A person's interest level is also kept on each of their conversations (so
+  // list screens agree). Do the same here, once the person's own change is in.
+  // Safe to repeat if the signal drops between the two steps.
+  if (op.table === "people" && op.kind === "update" && typeof op.payload?.interest_level === "string") {
+    const mirrored = await withTimeout(
+      createClient()
+        .from("conversations")
+        .update({ interest_level: op.payload.interest_level })
+        .eq("person_id", op.rowId),
+      SEND_TIMEOUT_MS
+    );
+    if (mirrored.error) {
+      throw Object.assign(new Error(mirrored.error.message), {
+        code: mirrored.error.code,
+        details: mirrored.error.details,
+        hint: mirrored.error.hint,
+        status: mirrored.status,
+      });
+    }
+  }
 }
 
 /** A stand-in for the signed-in person when only their saved copy is available (no signal). */
@@ -371,6 +393,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [pendingChanges, setPendingChanges] = useState(0);
   const [failedChanges, setFailedChanges] = useState<OutboxOp[]>([]);
   const [needsSignIn, setNeedsSignIn] = useState(false);
+  // The neighbourhoods as they are right now, for work that starts one right
+  // before the next (a new area, then the person in it) before the screen has
+  // re-drawn with the new list.
+  const areasRef = useRef<Area[]>([]);
+  useEffect(() => {
+    areasRef.current = areas;
+  }, [areas]);
   const storeRef = useRef<KeyValueStore | null>(null);
   const outboxRef = useRef<Outbox | null>(null);
   const reconnectingRef = useRef(false);
@@ -657,15 +686,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const photosList = areaPhotoTablesMissing
         ? []
         : (photosRes.data as PersonPhoto[]) || [];
-      const areaById = new Map(areasList.map((a) => [a.id, a]));
+      // People and neighbourhoods added or changed on this phone that the
+      // server has not received yet stay visible on top of what it returned.
+      const waiting = outboxRef.current?.all() ?? [];
+      const areasShown = applyOps(areasList, waiting, "areas");
+      const areaById = new Map(areasShown.map((a) => [a.id, a]));
       setPeople(
-        ((peopleRes.data as Person[]) || []).map((p) => ({
+        applyOps((peopleRes.data as Person[]) || [], waiting, "people").map((p) => ({
           ...p,
           area: p.area_id ? areaById.get(p.area_id) ?? null : null,
           photos: photosList.filter((ph) => ph.person_id === p.id),
         }))
       );
-      setAreas(areasList);
+      setAreas(areasShown);
       setPersonPhotos(photosList);
       const profile = profileRes.data as Profile | null;
       const nameFromProfile = sanitizeDisplayName(
@@ -834,6 +867,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       applyDemo({
         ...snapshot.data,
         sessions: applyOps(snapshot.data.sessions, ops, "ministry_sessions"),
+        people: applyOps(snapshot.data.people, ops, "people"),
+        areas: applyOps(snapshot.data.areas, ops, "areas"),
       });
       setSettings(snapshot.settings ?? defaultSettings(snapshot.userId));
       setDisplayName(snapshot.displayName);
@@ -1265,22 +1300,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
    * it goes at once; without, it waits and is sent when signal returns. If the
    * server refuses it outright, the change is taken back and the reason shown.
    */
-  const queueSessionChange = useCallback(
-    async (op: OutboxOp) => {
+  /**
+   * Saves changes that belong together on this phone first (so they survive the
+   * app closing), shows them on screen, then sends them in order. If the server
+   * refuses any of them outright, the whole group is taken back and the reason
+   * is shown. With no signal they simply wait.
+   */
+  const queueChanges = useCallback(
+    async (
+      ops: OutboxOp[],
+      showNow: () => void,
+      toError: (reason: string) => Error = (reason) => new Error(reason),
+      options: { refreshAfter?: boolean } = {}
+    ) => {
       const outbox = outboxRef.current;
       if (!outbox) throw new Error("Could not save on this phone.");
-      await outbox.enqueue(op);
-      setSessions((prev) => applyOps(prev, [op], "ministry_sessions"));
+      await outbox.enqueueAll(ops);
+      showNow();
       const result = await syncOutbox();
-      const refused = outbox.failed().find((f) => f.id === op.id);
+      const ids = new Set(ops.map((o) => o.id));
+      const refused = outbox.failed().find((f) => ids.has(f.id));
       if (refused) {
-        await outbox.discardOp(op.id);
+        for (const o of ops) await outbox.discardOp(o.id);
         await refresh();
-        throw new Error(refused.error ?? "That could not be saved.");
+        throw toError(refused.error ?? "That could not be saved.");
       }
-      if (result && result.sent > 0) await refresh();
+      if (result && result.sent > 0 && options.refreshAfter !== false) await refresh();
     },
     [refresh, syncOutbox]
+  );
+
+  const queueSessionChange = useCallback(
+    (op: OutboxOp) =>
+      queueChanges([op], () =>
+        setSessions((prev) => applyOps(prev, [op], "ministry_sessions"))
+      ),
+    [queueChanges]
   );
 
   const saveDailyMinistryTime = useCallback(
@@ -1744,6 +1799,75 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return created;
       }
 
+      if (canQueueChanges()) {
+        if (!user) throw new Error("Please sign in to save a person.");
+        const nowIso = new Date().toISOString();
+        // The same message the screen already knows how to offer a choice for.
+        const errorFor = (reason: string) =>
+          reason === DUPLICATE_PERSON_MESSAGE
+            ? new Error(`POSSIBLE_DUPLICATE_PERSON: ${reason}`)
+            : new Error(reason);
+
+        if (person.id) {
+          const personId = person.id;
+          const changes = buildPersonUpdate(person, nowIso);
+          let shown: Person | undefined;
+          await queueChanges(
+            [createOp({ table: "people", kind: "update", rowId: personId, payload: changes })],
+            () => {
+              setPeople((prev) =>
+                prev.map((p) => {
+                  if (p.id !== personId) return p;
+                  shown = withDetails(
+                    { ...p, ...(changes as Partial<Person>) },
+                    areasRef.current,
+                    personPhotos
+                  );
+                  return shown;
+                })
+              );
+              // Their conversations carry a copy of the interest level.
+              if (typeof changes.interest_level === "string") {
+                const level = changes.interest_level as Person["interest_level"];
+                setConversations((prev) =>
+                  prev.map((c) =>
+                    c.person_id === personId ? { ...c, interest_level: level as never } : c
+                  )
+                );
+              }
+            },
+            errorFor
+          );
+          return shown ?? (people.find((p) => p.id === personId) as Person);
+        }
+
+        const { payload, row } = buildPersonInsert(person, {
+          id: opts?.clientId ?? crypto.randomUUID(),
+          userId: user.id,
+          now: nowIso,
+          today: todayISO(),
+          confirmedDistinct: opts?.confirmedDistinct,
+        });
+        const shownRow = withDetails(row, areasRef.current, personPhotos);
+        await queueChanges(
+          [
+            createOp({
+              table: "people",
+              kind: "insert",
+              rowId: row.id,
+              payload,
+              row: row as unknown as Record<string, unknown>,
+            }),
+          ],
+          () =>
+            setPeople((prev) =>
+              prev.some((p) => p.id === row.id) ? prev : [shownRow, ...prev]
+            ),
+          errorFor
+        );
+        return shownRow;
+      }
+
       const supabase = createClient();
       if (person.id) {
         const { data, error } = await supabase
@@ -1827,7 +1951,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await refresh();
       return createdPerson;
     },
-    [applyDemo, demoMode, refresh, user]
+    [
+      applyDemo,
+      canQueueChanges,
+      demoMode,
+      people,
+      personPhotos,
+      queueChanges,
+      refresh,
+      user,
+    ]
   );
 
   const archivePerson = useCallback(
@@ -1874,6 +2007,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
         saveDemoData(data);
         return;
       }
+      if (canQueueChanges()) {
+        // Already shown above; saved on the phone, then sent in order.
+        await queueChanges(
+          [
+            createOp({
+              table: "people",
+              kind: "update",
+              rowId: personId,
+              payload: { ministry_days: days },
+            }),
+          ],
+          () => undefined,
+          undefined,
+          { refreshAfter: false }
+        );
+        return;
+      }
       const slot = daysSaves.current.get(personId) ?? { sending: false, next: null };
       daysSaves.current.set(personId, slot);
       slot.next = days;
@@ -1898,7 +2048,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         slot.sending = false;
       }
     },
-    [demoMode, refresh]
+    [canQueueChanges, demoMode, queueChanges, refresh]
   );
 
   const addPersonalReminder = useCallback(
@@ -2148,6 +2298,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       if (!user) throw new Error("Please sign in to create an area.");
+      if (canQueueChanges()) {
+        const row: Area = {
+          id: crypto.randomUUID(),
+          user_id: user.id,
+          name,
+          landmark_notes: null,
+          map_link: null,
+          location_lat: null,
+          location_lng: null,
+          created_at: now,
+          updated_at: now,
+        };
+        await queueChanges(
+          [
+            createOp({
+              table: "areas",
+              kind: "insert",
+              rowId: row.id,
+              payload: { id: row.id, user_id: user.id, name },
+              row: row as unknown as Record<string, unknown>,
+            }),
+          ],
+          () => {
+            areasRef.current = [...areasRef.current, row];
+            setAreas((prev) =>
+              [...prev, row].sort((a, b) => a.name.localeCompare(b.name))
+            );
+          }
+        );
+        return row.id;
+      }
       const supabase = createClient();
       const { data, error } = await supabase
         .from("areas")
@@ -2158,7 +2339,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await refresh();
       return (data as Area).id;
     },
-    [applyDemo, areas, demoMode, refresh, user]
+    [applyDemo, areas, canQueueChanges, demoMode, queueChanges, refresh, user]
   );
 
   const saveArea = useCallback(

@@ -12,7 +12,7 @@ import type { KeyValueStore } from "@/lib/offline/store";
  * discard it. It never disappears silently.
  */
 
-export type OutboxTable = "ministry_sessions";
+export type OutboxTable = "ministry_sessions" | "people" | "areas";
 
 export interface OutboxOp {
   id: string;
@@ -130,6 +130,17 @@ export class Outbox {
     this.notify();
     await this.persist();
     return op;
+  }
+
+  /**
+   * Adds several changes that belong together (for example a new area and the
+   * new person in it) as one step: they are stored together, so the app can't
+   * be closed between them, and they are sent in this order.
+   */
+  async enqueueAll(ops: OutboxOp[]): Promise<void> {
+    this.ops = [...this.ops, ...ops];
+    this.notify();
+    await this.persist();
   }
 
   /** Tries to send everything waiting, in order. Only one run at a time. */
