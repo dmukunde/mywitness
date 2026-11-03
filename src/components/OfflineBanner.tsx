@@ -153,8 +153,9 @@ export function OfflineBanner() {
           {when
             ? `You're seeing your records as they were on ${when}. `
             : "You're seeing the records saved on this phone. "}
-          Ministry time you track, and people you add or change, are saved on
-          this phone and sent when you have signal. Other changes need internet.
+          Ministry time you track, people you add or change, and visits you
+          schedule or move, are saved on this phone and sent when you have
+          signal. Other changes need internet.
           {waiting ? ` ${waiting}` : ""}
         </p>
         <button

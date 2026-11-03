@@ -55,12 +55,19 @@ export const OFFLINE_MESSAGE =
 export const DUPLICATE_PERSON_MESSAGE =
   'You already have someone with this name. Check People, then add them again and choose "different person".';
 
+/** Something with the same details is already on the account (for example a visit at the same date and time). */
+export const CLASH_MESSAGE =
+  "This clashes with something already on your account, such as a visit for the same person at the same date and time.";
+
 /** A short, safe description of why something was refused, for the person to read. */
 export function describeRefusal(err: unknown): string {
   if (err && typeof err === "object") {
     const e = err as ErrorLike;
     const msg = String(e.message ?? "").trim();
     if (/possible_duplicate_person/i.test(msg)) return DUPLICATE_PERSON_MESSAGE;
+    if (e.code === "23505" || /duplicate key|unique constraint/i.test(msg)) {
+      return CLASH_MESSAGE;
+    }
     if (e.code === "23503" || /foreign key/i.test(msg)) {
       return "This refers to something that is no longer on your account.";
     }

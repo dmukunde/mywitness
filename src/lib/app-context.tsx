@@ -61,8 +61,21 @@ import {
   saveSnapshot,
   type Snapshot,
 } from "@/lib/offline/snapshot";
-import { DUPLICATE_PERSON_MESSAGE, isNetworkError, withTimeout } from "@/lib/offline/errors";
+import {
+  CLASH_MESSAGE,
+  DUPLICATE_PERSON_MESSAGE,
+  isNetworkError,
+  withTimeout,
+} from "@/lib/offline/errors";
 import { buildPersonInsert, buildPersonUpdate, withDetails } from "@/lib/offline/person-changes";
+import {
+  buildCancel,
+  buildVisitCreate,
+  buildVisitUpdate,
+  withEventPerson,
+  withVisitDetails,
+  type EventChange,
+} from "@/lib/offline/visit-changes";
 import {
   dismissRemindersForVisits,
   saveBibleStudyDemo,
@@ -316,8 +329,26 @@ async function sendOutboxOp(op: OutboxOp): Promise<void> {
         ? await withTimeout(table.update(op.payload ?? {}).eq("id", op.rowId), SEND_TIMEOUT_MS)
         : await withTimeout(table.delete().eq("id", op.rowId), SEND_TIMEOUT_MS);
   const { error, status } = result;
-  // "Already there" means an earlier attempt got through before the signal dropped.
-  if (error && !(op.kind === "insert" && error.code === "23505")) {
+  if (error) {
+    // A clash on an insert can mean an earlier attempt got through before the
+    // signal dropped (our own record is already there: fine), or a clash with a
+    // DIFFERENT record (for example another visit for the same person at the
+    // same date and time): that one is a refusal.
+    if (op.kind === "insert" && error.code === "23505") {
+      const there = await withTimeout(
+        createClient().from(op.table).select("id").eq("id", op.rowId).maybeSingle(),
+        SEND_TIMEOUT_MS
+      );
+      if (there.error) {
+        throw Object.assign(new Error(there.error.message), {
+          code: there.error.code,
+          details: there.error.details,
+          hint: there.error.hint,
+          status: there.status,
+        });
+      }
+      if (there.data) return;
+    }
     throw Object.assign(new Error(error.message), {
       code: error.code,
       details: error.details,
@@ -346,6 +377,31 @@ async function sendOutboxOp(op: OutboxOp): Promise<void> {
       });
     }
   }
+
+  // A reminder about a visit that is no longer planned is obsolete. (Best
+  // effort: this never fails the change itself.)
+  if (
+    op.table === "return_visits" &&
+    op.kind === "update" &&
+    typeof op.payload?.status === "string" &&
+    op.payload.status !== "planned"
+  ) {
+    await dismissRemindersForVisits([op.rowId]);
+  }
+}
+
+/** The change to a visit's calendar entry, as a waiting change that depends on the visit. */
+function eventOp(change: EventChange, visitId: string): OutboxOp {
+  return createOp({
+    table: "scheduled_ministry_events",
+    kind: change.kind,
+    rowId: change.id,
+    payload: change.payload,
+    ...(change.kind === "insert"
+      ? { row: change.row as unknown as Record<string, unknown> }
+      : {}),
+    dependsOn: visitId,
+  });
 }
 
 /** A stand-in for the signed-in person when only their saved copy is available (no signal). */
@@ -691,8 +747,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const waiting = outboxRef.current?.all() ?? [];
       const areasShown = applyOps(areasList, waiting, "areas");
       const areaById = new Map(areasShown.map((a) => [a.id, a]));
+      const peopleShown = applyOps((peopleRes.data as Person[]) || [], waiting, "people");
       setPeople(
-        applyOps((peopleRes.data as Person[]) || [], waiting, "people").map((p) => ({
+        peopleShown.map((p) => ({
           ...p,
           area: p.area_id ? areaById.get(p.area_id) ?? null : null,
           photos: photosList.filter((ph) => ph.person_id === p.id),
@@ -725,7 +782,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           })),
         }))
       );
-      setReturnVisits((rvRes.data as ReturnVisit[]) || []);
+      // Visits and calendar entries scheduled or changed on this phone that the
+      // server has not received yet stay visible on top of what it returned.
+      setReturnVisits(
+        applyOps((rvRes.data as ReturnVisit[]) || [], waiting, "return_visits").map((v) =>
+          withVisitDetails(v, peopleShown, (convRes.data as Conversation[]) || [])
+        )
+      );
       // Time entries made on this phone that the server has not received yet
       // stay visible on top of what the server returned.
       setSessions(
@@ -747,7 +810,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setMinistryEvents(
         bibleTablesMissing
           ? []
-          : (eventsRes.data as ScheduledMinistryEvent[]) || []
+          : applyOps(
+              (eventsRes.data as ScheduledMinistryEvent[]) || [],
+              waiting,
+              "scheduled_ministry_events"
+            ).map((e) => withEventPerson(e, peopleShown))
       );
       setSettings((settingsRes.data as UserSettings) || defaultSettings(uid));
       setScripturesMap(scriptureByConv);
@@ -869,6 +936,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         sessions: applyOps(snapshot.data.sessions, ops, "ministry_sessions"),
         people: applyOps(snapshot.data.people, ops, "people"),
         areas: applyOps(snapshot.data.areas, ops, "areas"),
+        returnVisits: applyOps(snapshot.data.returnVisits, ops, "return_visits"),
+        ministryEvents: applyOps(
+          snapshot.data.ministryEvents,
+          ops,
+          "scheduled_ministry_events"
+        ),
       });
       setSettings(snapshot.settings ?? defaultSettings(snapshot.userId));
       setDisplayName(snapshot.displayName);
@@ -2811,6 +2884,91 @@ export function AppProvider({ children }: { children: ReactNode }) {
         applyDemo(data);
         return created;
       }
+      if (canQueueChanges()) {
+        const visitId = opts?.clientId ?? crypto.randomUUID();
+        // The same save seen twice (a double tap): it is already on its way.
+        const already = returnVisits.find((r) => r.id === visitId);
+        if (already) return already;
+
+        const built = buildVisitCreate(
+          visit,
+          { visitId, eventId: crypto.randomUUID(), userId: user!.id },
+          now
+        );
+        const ops: OutboxOp[] = [
+          createOp({
+            table: "return_visits",
+            kind: "insert",
+            rowId: visitId,
+            payload: built.visit.payload,
+            row: built.visit.row as unknown as Record<string, unknown>,
+          }),
+          createOp({
+            table: "scheduled_ministry_events",
+            kind: "insert",
+            rowId: built.event.row.id,
+            payload: built.event.payload,
+            row: built.event.row as unknown as Record<string, unknown>,
+            dependsOn: visitId,
+          }),
+        ];
+        // An older missed visit is replaced by this one, and so is its calendar entry.
+        for (const oldId of supersedeIds) {
+          const old = returnVisits.find((r) => r.id === oldId);
+          if (!old) continue;
+          const replaced = buildVisitUpdate(
+            old,
+            { status: "rescheduled" },
+            ministryEvents.find((e) => e.return_visit_id === oldId),
+            { newEventId: crypto.randomUUID(), userId: user!.id },
+            now
+          );
+          ops.push(
+            createOp({
+              table: "return_visits",
+              kind: "update",
+              rowId: oldId,
+              payload: replaced.visitPayload,
+            }),
+            eventOp(replaced.event, oldId)
+          );
+        }
+
+        const shown = withVisitDetails(built.visit.row, people, conversations);
+        const replacedIds = new Set(supersedeIds);
+        await queueChanges(
+          ops,
+          () => {
+            setReturnVisits((prev) => [
+              shown,
+              ...prev.map((rv) =>
+                replacedIds.has(rv.id) ? { ...rv, status: "rescheduled" as const } : rv
+              ),
+            ]);
+            setMinistryEvents((prev) => [
+              withEventPerson(built.event.row, people),
+              ...prev.map((e) =>
+                e.return_visit_id && replacedIds.has(e.return_visit_id)
+                  ? { ...e, status: "rescheduled" as const }
+                  : e
+              ),
+            ]);
+            if (replacedIds.size) {
+              setReminders((prev) =>
+                prev.filter((r) => !r.return_visit_id || !replacedIds.has(r.return_visit_id))
+              );
+            }
+          },
+          (reason) =>
+            reason === CLASH_MESSAGE
+              ? new Error(
+                  "DUPLICATE_EVENT: A return visit is already scheduled for this person at the same date and time."
+                )
+              : new Error(reason)
+        );
+        return shown;
+      }
+
       const supabase = createClient();
       const { data, error } = await supabase
         .from("return_visits")
@@ -2871,7 +3029,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await refresh();
       return created;
     },
-    [applyDemo, demoMode, ministryEvents, refresh, returnVisits, user]
+    [
+      applyDemo,
+      canQueueChanges,
+      conversations,
+      demoMode,
+      ministryEvents,
+      people,
+      queueChanges,
+      refresh,
+      returnVisits,
+      user,
+    ]
   );
 
   const updateReturnVisit = useCallback(
@@ -2894,6 +3063,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         saveDemoData(data);
         applyDemo(data);
+        return;
+      }
+      if (canQueueChanges()) {
+        const existing = returnVisits.find((rv) => rv.id === id);
+        if (!existing) throw new Error("This visit could not be found.");
+        const update = buildVisitUpdate(
+          existing,
+          patch,
+          ministryEvents.find((e) => e.return_visit_id === id),
+          { newEventId: crypto.randomUUID(), userId: user!.id },
+          new Date().toISOString()
+        );
+        const change = update.event;
+        await queueChanges(
+          [
+            createOp({
+              table: "return_visits",
+              kind: "update",
+              rowId: id,
+              payload: update.visitPayload,
+            }),
+            eventOp(change, id),
+          ],
+          () => {
+            setReturnVisits((prev) =>
+              prev.map((rv) =>
+                rv.id === id ? { ...rv, ...(update.visitPayload as Partial<ReturnVisit>) } : rv
+              )
+            );
+            setMinistryEvents((prev) =>
+              change.kind === "update"
+                ? prev.map((e) =>
+                    e.id === change.id
+                      ? { ...e, ...(change.payload as Partial<ScheduledMinistryEvent>) }
+                      : e
+                  )
+                : [withEventPerson(change.row, people), ...prev]
+            );
+            // No longer planned: any reminder about it is obsolete.
+            if (patch.status && patch.status !== "planned") {
+              setReminders((prev) => prev.filter((r) => r.return_visit_id !== id));
+            }
+          }
+        );
         return;
       }
       const supabase = createClient();
@@ -2928,7 +3141,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       await refresh();
     },
-    [applyDemo, demoMode, refresh, returnVisits, user]
+    [
+      applyDemo,
+      canQueueChanges,
+      demoMode,
+      ministryEvents,
+      people,
+      queueChanges,
+      refresh,
+      returnVisits,
+      user,
+    ]
   );
 
   const saveBibleStudy = useCallback(
@@ -3141,6 +3364,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
         applyDemo(data);
         return;
       }
+      if (canQueueChanges()) {
+        const existing = returnVisits.find((rv) => rv.id === id);
+        if (!existing) return;
+        const cancel = buildCancel(
+          ministryEvents.find((e) => e.return_visit_id === id),
+          now
+        );
+        const entry = cancel.event;
+        await queueChanges(
+          [
+            createOp({
+              table: "return_visits",
+              kind: "update",
+              rowId: id,
+              payload: cancel.visitPayload,
+            }),
+            ...(entry
+              ? [
+                  createOp({
+                    table: "scheduled_ministry_events",
+                    kind: "update",
+                    rowId: entry.id,
+                    payload: entry.payload,
+                    dependsOn: id,
+                  }),
+                ]
+              : []),
+          ],
+          () => {
+            setReturnVisits((prev) =>
+              prev.map((rv) => (rv.id === id ? { ...rv, status: "cancelled" as const } : rv))
+            );
+            if (entry) {
+              setMinistryEvents((prev) =>
+                prev.map((e) =>
+                  e.id === entry.id ? { ...e, status: "cancelled" as const } : e
+                )
+              );
+            }
+            setReminders((prev) => prev.filter((r) => r.return_visit_id !== id));
+          }
+        );
+        return;
+      }
       const supabase = createClient();
       const before = returnVisits.find((rv) => rv.id === id);
       setReturnVisits((prev) =>
@@ -3168,7 +3435,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       await refresh();
     },
-    [applyDemo, demoMode, refresh, returnVisits]
+    [
+      applyDemo,
+      canQueueChanges,
+      demoMode,
+      ministryEvents,
+      queueChanges,
+      refresh,
+      returnVisits,
+    ]
   );
 
   const saveConversation = useCallback(

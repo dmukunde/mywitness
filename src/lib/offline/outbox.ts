@@ -12,7 +12,12 @@ import type { KeyValueStore } from "@/lib/offline/store";
  * discard it. It never disappears silently.
  */
 
-export type OutboxTable = "ministry_sessions" | "people" | "areas";
+export type OutboxTable =
+  | "ministry_sessions"
+  | "people"
+  | "areas"
+  | "return_visits"
+  | "scheduled_ministry_events";
 
 export interface OutboxOp {
   id: string;
@@ -20,6 +25,11 @@ export interface OutboxOp {
   kind: "insert" | "update" | "delete";
   /** The record this change is about. */
   rowId: string;
+  /**
+   * A record this change cannot exist without (a calendar entry depends on its
+   * visit). If that record's change is refused, this one is not sent either.
+   */
+  dependsOn?: string;
   /** The columns to send to the server (insert or update). */
   payload?: Record<string, unknown>;
   /** For an insert: the whole record as the app shows it, so it can be seen before it is sent. */
@@ -32,7 +42,7 @@ export interface OutboxOp {
 }
 
 export function createOp(
-  input: Pick<OutboxOp, "table" | "kind" | "rowId" | "payload" | "row">,
+  input: Pick<OutboxOp, "table" | "kind" | "rowId" | "payload" | "row" | "dependsOn">,
   now: Date = new Date(),
   id: string = crypto.randomUUID()
 ): OutboxOp {
@@ -163,10 +173,12 @@ export class Outbox {
       if (!op) break;
       tried.add(op.id);
 
-      // Don't send a change to a record whose earlier change was refused.
-      if (refusedRows.has(op.rowId)) {
+      // Don't send a change to a record whose earlier change was refused, or
+      // one that depends on a record whose change was refused.
+      if (refusedRows.has(op.rowId) || (op.dependsOn && refusedRows.has(op.dependsOn))) {
         op.status = "failed";
         op.error = "An earlier change to this entry could not be saved.";
+        refusedRows.add(op.rowId);
         await this.persist();
         this.notify();
         continue;
