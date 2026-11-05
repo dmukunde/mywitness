@@ -19,7 +19,7 @@ import {
   StatusBadge,
   TopicBadge,
 } from "@/components/badges";
-import { WhatsAppButton } from "@/components/WhatsAppButton";
+import { ContactButtons } from "@/components/ContactButtons";
 import { PersonPhotoGallery } from "@/components/PersonPhotoGallery";
 import {
   statusAfterScheduling,
@@ -218,7 +218,7 @@ export default function BibleStudyProfilePage() {
       </Card>
 
       {person?.phone_number && (
-        <WhatsAppButton phoneNumber={person.phone_number} personName={person.name} />
+        <ContactButtons phoneNumber={person.phone_number} personName={person.name} />
       )}
 
       {person && <PersonPhotoGallery personId={person.id} readOnly />}

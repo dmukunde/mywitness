@@ -125,7 +125,7 @@ export default function NewPersonPage() {
         value={phone}
         onChange={(e) => setPhone(e.target.value)}
         placeholder="0772 123456"
-        hint="Used for the WhatsApp button on this person's profile."
+        hint="Used for the Call and WhatsApp buttons on this person's profile. It is not added to your phone's contacts."
       />
       <Input
         label="Preferred contact or visit time"

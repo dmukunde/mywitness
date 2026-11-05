@@ -38,3 +38,40 @@ export function normalizeForWhatsApp(
     },
   };
 }
+
+export type CallNumberResult =
+  | { valid: true; telLink: string }
+  | { valid: false; reason: string };
+
+/**
+ * The number to dial for a "Call" button. Unlike WhatsApp, a call needs no
+ * account, so a number that is not a full mobile number (a landline, a short
+ * number, one typed in another country's format) is still dialled, as the
+ * person typed it, minus spaces and punctuation. The phone's own dialler shows
+ * the number before anything is called. A number that parses cleanly is
+ * written in full international form so it also works from abroad.
+ */
+export function normalizeForCall(
+  raw: string | null | undefined,
+  defaultCountry: "UG" = "UG"
+): CallNumberResult {
+  const trimmed = (raw || "").trim();
+  if (!trimmed) {
+    return { valid: false, reason: "No phone number saved." };
+  }
+
+  const phone = parsePhoneNumberFromString(trimmed, defaultCountry);
+  if (phone && phone.isValid()) {
+    return { valid: true, telLink: `tel:${phone.number}` };
+  }
+
+  const keepPlus = trimmed.startsWith("+") ? "+" : "";
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length < 3) {
+    return {
+      valid: false,
+      reason: "This number doesn't look valid — check the digits.",
+    };
+  }
+  return { valid: true, telLink: `tel:${keepPlus}${digits}` };
+}

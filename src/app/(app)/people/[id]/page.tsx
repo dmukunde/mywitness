@@ -27,7 +27,7 @@ import { MergeContactsSheet } from "@/components/MergeContactsSheet";
 import { AddReminderSheet } from "@/components/AddReminderSheet";
 import { ReminderList } from "@/components/ReminderList";
 import { sortOpen } from "@/lib/reminders";
-import { WhatsAppButton } from "@/components/WhatsAppButton";
+import { ContactButtons } from "@/components/ContactButtons";
 import { PersonPhotoGallery } from "@/components/PersonPhotoGallery";
 import { InterestBadge, INTEREST_LEVEL_ORDER } from "@/components/InterestBadge";
 import {
@@ -262,7 +262,7 @@ export default function PersonProfilePage() {
           value={form.phone_number}
           onChange={(e) => setForm({ ...form, phone_number: e.target.value })}
           placeholder="0772 123456"
-          hint="Used for the WhatsApp button on this person's profile."
+          hint="Used for the Call and WhatsApp buttons on this person's profile. It is not added to your phone's contacts."
         />
         <Input
           label="Preferred contact time"
@@ -436,7 +436,7 @@ export default function PersonProfilePage() {
         )}
       </Card>
 
-      <WhatsAppButton phoneNumber={person.phone_number} personName={person.name} />
+      <ContactButtons phoneNumber={person.phone_number} personName={person.name} />
 
       <PersonPhotoGallery personId={person.id} />
 

@@ -31,7 +31,7 @@ import {
   statusKindFromReturnVisit,
 } from "@/components/badges";
 import { InterestBadge } from "@/components/InterestBadge";
-import { WhatsAppButton } from "@/components/WhatsAppButton";
+import { ContactButtons } from "@/components/ContactButtons";
 import { PersonPhotoGallery } from "@/components/PersonPhotoGallery";
 import { isBefore, parseISO } from "date-fns";
 import { formatDbError } from "@/lib/db-errors";
@@ -233,7 +233,7 @@ export default function ReturnVisitPrepPage() {
       )}
 
       {person?.phone_number && (
-        <WhatsAppButton phoneNumber={person.phone_number} personName={person.name} />
+        <ContactButtons phoneNumber={person.phone_number} personName={person.name} />
       )}
 
       {person && <PersonPhotoGallery personId={person.id} readOnly />}
