@@ -12,6 +12,7 @@ import {
   EmptyState,
   Input,
   PageHeader,
+  Sheet,
   TimeField,
 } from "@/components/ui";
 import {
@@ -20,6 +21,9 @@ import {
   TopicBadge,
 } from "@/components/badges";
 import { ContactButtons } from "@/components/ContactButtons";
+import { HandOverSheet } from "@/components/HandOverSheet";
+import { HandoverReplyForm } from "@/components/HandoverReplyForm";
+import { clearHandedOver, getCovering, getHandedOver } from "@/lib/handover-store";
 import { PersonPhotoGallery } from "@/components/PersonPhotoGallery";
 import {
   statusAfterScheduling,
@@ -41,6 +45,7 @@ export default function BibleStudyProfilePage() {
     updateBibleStudyStatus,
     saveBibleStudy,
     archiveBibleStudy,
+    displayName,
   } = useApp();
 
   const study = bibleStudies.find((s) => s.id === params.id);
@@ -63,6 +68,10 @@ export default function BibleStudyProfilePage() {
   const [finishing, setFinishing] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [handingOver, setHandingOver] = useState(false);
+  const [sendingUpdate, setSendingUpdate] = useState(false);
+  // Bumped to show a change to what this phone remembers about handovers.
+  const [, setHandoverNote] = useState(0);
 
   if (!study) {
     return (
@@ -76,6 +85,9 @@ export default function BibleStudyProfilePage() {
       />
     );
   }
+
+  const handedOver = getHandedOver(study.id);
+  const covering = getCovering(study.id);
 
   const pct = studyProgressPercent(study);
   // The study's appointment as the rest of the app sees it (Calendar, Home):
@@ -221,6 +233,36 @@ export default function BibleStudyProfilePage() {
         <ContactButtons phoneNumber={person.phone_number} personName={person.name} />
       )}
 
+      {handedOver && (
+        <Card className="space-y-2 bg-amber-50 ring-amber-200">
+          <p className="text-sm text-amber-950">
+            Handed over{handedOver.to ? ` to ${handedOver.to}` : ""} from{" "}
+            {formatDisplayDate(handedOver.start)} to {formatDisplayDate(handedOver.end)}.
+          </p>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              clearHandedOver(study.id);
+              setHandoverNote((n) => n + 1);
+            }}
+          >
+            I&apos;m back, remove this note
+          </Button>
+        </Card>
+      )}
+
+      {covering && (
+        <Card className="space-y-2 bg-emerald-50 ring-emerald-200">
+          <p className="text-sm text-emerald-950">
+            You are covering this study for {covering.from} until {formatDisplayDate(covering.end)}.
+          </p>
+          <Button size="sm" onClick={() => setSendingUpdate(true)}>
+            Send an update to {covering.from}
+          </Button>
+        </Card>
+      )}
+
       {person && <PersonPhotoGallery personId={person.id} readOnly />}
 
       <div className="space-y-2">
@@ -245,6 +287,15 @@ export default function BibleStudyProfilePage() {
         >
           {overdue ? "Reschedule study" : "Schedule next study"}
         </Button>
+        {person && study.status !== "completed" && !covering && (
+          <Button
+            variant="secondary"
+            className="w-full"
+            onClick={() => setHandingOver(true)}
+          >
+            Hand over this study
+          </Button>
+        )}
         {study.status === "active" && (
           <Button
             variant="ghost"
@@ -316,6 +367,41 @@ export default function BibleStudyProfilePage() {
             Cancel
           </Button>
         </Card>
+      )}
+
+      {person && (
+        <HandOverSheet
+          key={study.id}
+          study={study}
+          person={person}
+          open={handingOver}
+          onClose={() => {
+            setHandingOver(false);
+            setHandoverNote((n) => n + 1);
+          }}
+        />
+      )}
+
+      {covering && (
+        <Sheet
+          open={sendingUpdate}
+          title={`Update for ${covering.from}`}
+          subtitle={`Bible study with ${covering.person}`}
+          onClose={() => setSendingUpdate(false)}
+        >
+          <HandoverReplyForm
+            studyId={covering.ownerStudyId}
+            personName={covering.person}
+            sendTo={covering.from}
+            initial={{
+              by: displayName,
+              lessonNumber: study.current_lesson_number,
+              status: study.status,
+              nextDate: study.next_study_date,
+              nextTime: study.next_study_time,
+            }}
+          />
+        </Sheet>
       )}
 
       <ConfirmDialog

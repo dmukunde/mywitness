@@ -10,6 +10,11 @@ export const PUBLIC_PAGES = [
   "/terms",
   "/support",
   "/delete-account-info",
+  // A Bible study handover and its update travel inside the link (after the
+  // "#", which is never sent to a server), so these pages hold no one's data
+  // and must open for someone who has no account.
+  "/handover",
+  "/handover/reply",
 ] as const;
 
 /** Files the browser needs before anyone has signed in. */

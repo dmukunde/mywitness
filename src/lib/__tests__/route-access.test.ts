@@ -2,11 +2,19 @@ import { describe, expect, it } from "vitest";
 import { PUBLIC_PAGES, classifyRoute } from "@/lib/route-access";
 
 describe("classifyRoute", () => {
-  it("lets the four information pages be read without signing in", () => {
+  it("lets the information pages be read without signing in", () => {
     for (const page of PUBLIC_PAGES) {
       expect(classifyRoute(page)).toBe("public");
       expect(classifyRoute(`${page}/`)).toBe("public");
     }
+  });
+
+  it("lets the handover link and its update link open with no account, and nothing near them", () => {
+    expect(classifyRoute("/handover")).toBe("public");
+    expect(classifyRoute("/handover/reply")).toBe("public");
+    expect(classifyRoute("/handover/accept")).toBe("app");
+    expect(classifyRoute("/handover/reply/extra")).toBe("app");
+    expect(classifyRoute("/handovers")).toBe("app");
   });
 
   it("does not make anything under or near a public page public", () => {

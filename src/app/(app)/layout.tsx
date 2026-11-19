@@ -11,6 +11,7 @@ import { useReminderAlerts } from "@/hooks/useReminderAlerts";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { takePendingLink } from "@/lib/handover-store";
 
 export default function AppShellLayout({
   children,
@@ -26,6 +27,12 @@ export default function AppShellLayout({
     if (loading) return;
     if (!user && !demoMode) {
       router.replace("/login");
+      return;
+    }
+    // A handover link that needed a sign-in is opened again now they are in.
+    if (user) {
+      const pending = takePendingLink();
+      if (pending) router.replace(pending);
     }
   }, [user, loading, demoMode, router]);
 

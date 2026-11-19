@@ -189,7 +189,7 @@ The server log also has one `[ai-usage]` line per request (kind, outcome, a shor
 
 ## Who can open which pages
 
-`src/lib/route-access.ts` is the single list of pages that work without signing in (`/privacy`, `/terms`, `/support`, `/delete-account-info`, plus the service worker and manifest). Everything else needs a session, and API routes answer unauthenticated calls with a plain 401.
+`src/lib/route-access.ts` is the single list of pages that work without signing in (`/privacy`, `/terms`, `/support`, `/delete-account-info`, the two handover pages `/handover` and `/handover/reply`, plus the service worker and manifest). Everything else needs a session, and API routes answer unauthenticated calls with a plain 401.
 
 ## Working with no signal (offline)
 
@@ -204,3 +204,11 @@ MyWitness opens and can be used with no data. Two parts make that work.
 **Switching the worker off (support):** in the browser, set `localStorage["mw-no-service-worker"] = "1"` and reload; the worker and its saved screens are removed. The worker is only registered in the deployed app, never in `npm run dev`.
 
 **Testing it properly needs a real phone:** open the app with signal and wait a minute, then switch on airplane mode and open it from the Home Screen. Check the Today, Calendar, People, a person's page, the monthly report; start and stop the timer; add time manually. Then switch airplane mode off and check the banner clears and the time appears in the report. The worker's logic is covered by `src/lib/__tests__/service-worker.test.ts`, the queue by `src/lib/offline/__tests__/`.
+
+## Handing a Bible study over (no account needed)
+
+On a study, **Hand over this study** builds a link and opens the phone's Share menu (WhatsApp etc.) with a short message. The study's details travel **inside the link, after the "#"** (`src/lib/handover.ts`), which a browser never sends to a server, so nothing about the student is stored on our side and the person covering needs no account. The page they open (`/handover`) is public and decodes the link in their browser; if they have MyWitness and are signed in, **Add to my people** creates the person and the study in their own account (asking first if they already have someone with that name). Private notes are never included, and the owner chooses whether to include the phone number, the place and the preparation notes.
+
+When the study is back, the covering person uses the same page (or **Send an update** on their own copy) to send a short update: which lesson, still studying / paused / finished, next study, an optional note. It becomes a link to `/handover/reply`; the owner opens it, checks or edits it, and taps **Add to my study**, which records a session ("Update from Ruth: now on lesson 16 …"), moves the study to that lesson and sets its status and next date. Nothing changes until the owner confirms, and the same update cannot be added twice.
+
+Limits to know: a link cannot be switched off once sent (the page only shows "this handover ended on …" after the end date); there is no live sync; the phone remembers who it is covering for, and what it has handed over, only in the browser (`src/lib/handover-store.ts`), so clearing the browser loses those notes but not the studies. Everything read from a link is validated and length-limited (`decodeHandover` / `decodeReply`, covered by tests). A link that needs a sign-in is put aside and reopened after sign-in.
