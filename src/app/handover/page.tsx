@@ -17,6 +17,7 @@ import {
   type Handover,
 } from "@/lib/handover";
 import { findCoveringByOwnerStudy, saveCovering, stashPendingLink } from "@/lib/handover-store";
+import { copyText } from "@/lib/share";
 import { todayISO } from "@/lib/utils";
 import type { Person } from "@/lib/types";
 
@@ -69,6 +70,7 @@ function HandoverView({ handover: h, hash }: { handover: Handover; hash: string 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sameName, setSameName] = useState<Person | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const added = findCoveringByOwnerStudy(h.studyId);
   const ended = handoverHasEnded(h, todayISO());
@@ -215,11 +217,18 @@ function HandoverView({ handover: h, hash }: { handover: Handover; hash: string 
         ) : (
           <>
             <p className="text-sm text-stone-600">
-              Sign in to add this study to your own people. If you don&apos;t use MyWitness, you
-              can use everything on this page as it is.
+              If you have MyWitness on your home screen: copy this link, open MyWitness, go to
+              the Bible Studies tab and tap &quot;Got a handover link?&quot; to paste it. If you
+              don&apos;t use MyWitness, everything you need is on this page.
             </p>
-            <Button variant="secondary" className="w-full" onClick={signIn}>
-              Sign in to add it
+            <Button
+              className="w-full"
+              onClick={async () => setCopied(await copyText(window.location.href))}
+            >
+              {copied ? "Link copied" : "Copy this link"}
+            </Button>
+            <Button variant="ghost" className="w-full" onClick={signIn}>
+              Or sign in here
             </Button>
           </>
         )}

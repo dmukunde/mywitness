@@ -13,6 +13,7 @@ import {
   Select,
 } from "@/components/ui";
 import { StatusBadge, SuccessBanner } from "@/components/badges";
+import { HandoverPaste } from "@/components/HandoverPaste";
 import {
   studyProgressLabel,
   studyProgressPercent,
@@ -137,6 +138,10 @@ function BibleStudiesInner() {
           </Link>
         }
       />
+
+      <div className="-mt-2">
+        <HandoverPaste />
+      </div>
 
       {deletedBanner && (
         <SuccessBanner

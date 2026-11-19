@@ -4,6 +4,8 @@
   "description": "Privately organize ministry notes, conversations, and return visits.",
   "start_url": "/today",
   "scope": "/",
+  "handle_links": "preferred",
+  "launch_handler": { "client_mode": "navigate-existing" },
   "display": "standalone",
   "orientation": "portrait-primary",
   "background_color": "#f4f7f5",

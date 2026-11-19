@@ -15,6 +15,7 @@ import {
   type Reply,
 } from "@/lib/handover";
 import { clearHandedOver, stashPendingLink } from "@/lib/handover-store";
+import { copyText } from "@/lib/share";
 import type { BibleStudy } from "@/lib/types";
 
 const day = (iso: string) => format(parseISO(iso), "EEE, MMM d");
@@ -32,6 +33,7 @@ export default function HandoverReplyPage() {
   const hash = useHash();
   const router = useRouter();
   const { user, loading, bibleStudies } = useApp();
+  const [copied, setCopied] = useState(false);
 
   if (hash === null || loading) {
     return (
@@ -59,17 +61,25 @@ export default function HandoverReplyPage() {
           Update from {reply.by}
         </h1>
         <p className="text-sm text-stone-600">
-          Sign in to MyWitness to add this update to your Bible study
-          {reply.person ? ` with ${reply.person}` : ""}.
+          To add this update to your Bible study{reply.person ? ` with ${reply.person}` : ""}:
+          copy this link, open MyWitness from your home screen, go to the Bible Studies tab and
+          tap &quot;Got a handover link?&quot; to paste it.
         </p>
         <Button
+          className="w-full"
+          onClick={async () => setCopied(await copyText(window.location.href))}
+        >
+          {copied ? "Link copied" : "Copy this link"}
+        </Button>
+        <Button
+          variant="ghost"
           className="w-full"
           onClick={() => {
             stashPendingLink(`/handover/reply#${hash}`);
             router.push("/login");
           }}
         >
-          Sign in
+          Or sign in here
         </Button>
       </Shell>
     );

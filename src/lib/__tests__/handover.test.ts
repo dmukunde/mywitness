@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BibleStudy, Person } from "@/lib/types";
 import {
+  locateHandoverLink,
   encodeHandoverV1,
   buildHandover,
   handoverMessage,
@@ -424,5 +425,46 @@ describe("a short link", () => {
     expect(decodeHandover(tok(brokenId)).ok).toBe(false);
     const brokenStatus = [...good]; brokenStatus[14] = 9;
     expect(decodeHandover(tok(brokenStatus)).ok).toBe(false);
+  });
+});
+
+describe("opening a link that was pasted into the app", () => {
+  const origin = "https://mywitness.vercel.app";
+
+  it("finds a handover link inside the whole message", () => {
+    const link = handoverLink(origin, handover());
+    const message = handoverMessage(handover(), link);
+    const found = locateHandoverLink(message);
+    expect(found).toEqual({ kind: "handover", path: `/handover#${encodeHandover(handover())}` });
+  });
+
+  it("finds an update link inside the whole message", () => {
+    const message = replyMessage(reply(), replyLink(origin, reply()));
+    expect(locateHandoverLink(message)).toEqual({ kind: "reply", path: `/handover/reply#${encodeHandover(reply())}` });
+  });
+
+  it("accepts just the link, just the part after the #, and a link with damage on the end", () => {
+    const token = encodeHandover(handover());
+    for (const text of [handoverLink(origin, handover()), `${handoverLink(origin, handover())}.`, token, ` ${token} `, `(${handoverLink(origin, handover())})`]) {
+      expect(locateHandoverLink(text)).toEqual({ kind: "handover", path: `/handover#${token}` });
+    }
+  });
+
+  it("opens the screen that matches what is inside, whatever the link says", () => {
+    const token = encodeHandover(reply());
+    expect(locateHandoverLink(`${origin}/handover#${token}`)?.kind).toBe("reply");
+  });
+
+  it("finds nothing in text that is not a handover", () => {
+    for (const text of ["", "   ", "hello there", "https://example.com/handover#nonsense", "Hi Ruth, see you Saturday!", `${origin}/handover#`]) {
+      expect(locateHandoverLink(text)).toBeNull();
+    }
+  });
+
+  it("only ever returns an address inside this app, made of the checked token", () => {
+    const evil = `javascript:alert(1)//handover#${encodeHandover(handover())}`;
+    const found = locateHandoverLink(evil);
+    expect(found?.path).toMatch(/^\/handover#[A-Za-z0-9_-]+$/);
+    expect(found?.path.startsWith("//")).toBe(false);
   });
 });

@@ -613,3 +613,26 @@ export function replyMessage(reply: Reply, link: string): string {
 ${link}`
   );
 }
+
+// ------------------------------------------------- opening a pasted link
+
+/**
+ * Finds a handover or update link in text pasted from a message (the whole
+ * message, just the link, or just the part after the "#") and says which
+ * screen in this app opens it. The address is always built here from the
+ * checked token, never taken from the pasted text.
+ */
+export function locateHandoverLink(text: string): { path: string; kind: "handover" | "reply" } | null {
+  const inLink = text.match(/\/handover(?:\/reply)?#([A-Za-z0-9_%.-]+)/);
+  const token = cleanToken(inLink ? inLink[1] : text);
+  if (!token) return null;
+  const parsed = parseToken(token);
+  if ("problem" in parsed) return null;
+  if (parsed.raw.kind === "handover" && decodeHandover(token).ok) {
+    return { path: `${HANDOVER_PATH}#${token}`, kind: "handover" };
+  }
+  if (parsed.raw.kind === "reply" && decodeReply(token).ok) {
+    return { path: `${REPLY_PATH}#${token}`, kind: "reply" };
+  }
+  return null;
+}
