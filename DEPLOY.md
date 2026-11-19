@@ -42,6 +42,7 @@ In Supabase → **SQL Editor** → New query → paste and run each file **in or
 | 018 | `018_data_api_grants.sql` | Explicit Data API grants for every table (needed for new Supabase projects) |
 | 019 | `019_ministry_days.sql` | Ministry days on people; merge combines days |
 | 020 | `020_ai_usage_limits.sql` | Voice-note fair-use limits (usage log + server-only check functions) |
+| 021 | `021_delete_person.sql` | `delete_person_permanently()`: deletes an ARCHIVED person and everything about them in one step (People → Show archived → Delete) |
 
 Every migration file is written to be safe to re-run (`IF NOT EXISTS` / `ON CONFLICT DO NOTHING`), but **don't blindly rerun them against a project that's already up to date** — check first. To see what a given project already has, open **Supabase → Table Editor** and confirm: does `bible_studies` exist (005)? Does `people` have a `phone_number` column (007)? Does `bible_studies` have an `archived_at` column (010)? Does `user_settings` have `service_year_start_month` (011)? Does `study_notes` exist (012)? If all of those are present, the project is fully migrated — only run whichever numbered files are missing, in order.
 

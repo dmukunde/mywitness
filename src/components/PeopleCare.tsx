@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/app-context";
-import { Button, Card } from "@/components/ui";
+import { Button, Card, ConfirmDialog } from "@/components/ui";
 import { MergeContactsSheet } from "@/components/MergeContactsSheet";
 import { contactSummary } from "@/lib/person-merge";
+import { describeDeletion } from "@/lib/person-delete";
 import { findDuplicatePairs } from "@/lib/person-match";
 import { IDLE_DAYS, suggestArchiving } from "@/lib/archive-suggestions";
 import { formatDisplayDate, todayISO } from "@/lib/utils";
@@ -37,7 +38,9 @@ const pairKey = (a: string, b: string) => [a, b].sort().join("|");
  *  - possible duplicates, to review and merge (or mark "not the same person")
  *  - contacts idle for 90 days, to archive (or keep)
  *  - the archived list, to restore from
- * Nothing here deletes anything; archiving and merging are both reversible.
+ * Nothing here deletes anything on its own; archiving and merging are both
+ * reversible. Only an archived person can be deleted for good, by choosing
+ * Delete next to them and confirming.
  */
 export function PeopleCare() {
   const {
@@ -50,6 +53,7 @@ export function PeopleCare() {
     personPhotos,
     archivePerson,
     restorePerson,
+    deletePersonPermanently,
   } = useApp();
   const [notDuplicates, setNotDuplicates] = useState<string[]>(() =>
     read<string[]>(SEEN_PAIRS_KEY, [])
@@ -62,6 +66,7 @@ export function PeopleCare() {
   );
   const [showArchived, setShowArchived] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<{ id: string; name: string } | null>(null);
   const today = todayISO();
 
   const pairs = useMemo(
@@ -121,6 +126,22 @@ export function PeopleCare() {
       await fn();
     } catch {
       setError("Something went wrong. Please try again.");
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleting) return;
+    const target = deleting;
+    setDeleting(null);
+    setError(null);
+    try {
+      await deletePersonPermanently(target.id);
+    } catch (e) {
+      setError(
+        e instanceof Error && e.message
+          ? e.message
+          : "Could not delete this person. Please try again."
+      );
     }
   };
 
@@ -251,13 +272,23 @@ export function PeopleCare() {
                     <span className="min-w-0 truncate text-sm font-medium text-stone-800">
                       {p.name}
                     </span>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => void run(() => restorePerson(p.id))}
-                    >
-                      Restore
-                    </Button>
+                    <div className="flex shrink-0 gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void run(() => restorePerson(p.id))}
+                      >
+                        Restore
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-rose-700"
+                        onClick={() => setDeleting({ id: p.id, name: p.name })}
+                      >
+                        Delete
+                      </Button>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -269,6 +300,28 @@ export function PeopleCare() {
       {error && (
         <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>
       )}
+
+      <ConfirmDialog
+        open={deleting !== null}
+        title={deleting ? `Delete ${deleting.name} for good?` : ""}
+        message={
+          deleting
+            ? describeDeletion(
+                deleting.name,
+                contactSummary(deleting.id, {
+                  conversations,
+                  returnVisits,
+                  bibleStudies,
+                  personPhotos,
+                })
+              )
+            : ""
+        }
+        confirmLabel="Delete for good"
+        danger
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setDeleting(null)}
+      />
 
       {merging && (
         <MergeContactsSheet

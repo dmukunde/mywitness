@@ -654,7 +654,7 @@ export default function PersonProfilePage() {
       <ConfirmDialog
         open={archiving}
         title="Archive this person?"
-        message="They will be hidden from your list but their conversations remain private. You can restore later from exported data."
+        message="They will be hidden from your list. You can bring them back any time from 'Show archived' on the People page, or delete them for good from there."
         confirmLabel="Archive"
         danger
         onConfirm={handleArchive}

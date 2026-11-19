@@ -88,6 +88,9 @@ body {
   }
 }
 
+/* "backwards", not "both": keeping the finished transform would make the page
+   the containing block for every fixed pop-up (confirm dialogs, sheets), which
+   then sit at the bottom of a long page instead of on the screen. */
 .animate-fade-up {
-  animation: fade-up 0.45s ease-out both;
+  animation: fade-up 0.45s ease-out backwards;
 }

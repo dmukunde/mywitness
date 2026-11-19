@@ -68,6 +68,7 @@ import {
   withTimeout,
 } from "@/lib/offline/errors";
 import { buildPersonInsert, buildPersonUpdate, withDetails } from "@/lib/offline/person-changes";
+import { removePersonFromDemoData } from "@/lib/person-delete";
 import {
   buildCancel,
   buildVisitCreate,
@@ -236,6 +237,8 @@ interface AppContextValue {
   /** Contacts that were archived (hidden, never deleted) and can be restored. */
   archivedPeople: Person[];
   restorePerson: (id: string) => Promise<void>;
+  /** Permanently deletes an ARCHIVED person and everything recorded about them. Needs internet. */
+  deletePersonPermanently: (id: string) => Promise<void>;
   /** Moves everything from `mergeId` onto `keepId`; returns the merge record (for undo). */
   mergePeople: (keepId: string, mergeId: string) => Promise<string>;
   undoMerge: (logId: string) => Promise<void>;
@@ -2300,6 +2303,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [applyDemo, demoMode, refresh]
   );
 
+  const deletePersonPermanently = useCallback(
+    async (id: string) => {
+      if (demoMode) {
+        const data = loadDemoData();
+        removePersonFromDemoData(data, id);
+        saveDemoData(data);
+        applyDemo(data);
+        return;
+      }
+      // Changes waiting to be sent could still mention this person.
+      if ((outboxRef.current?.all().length ?? 0) > 0) {
+        throw new Error(
+          "You have changes waiting to be sent. Wait until they have been sent (when you have signal), then delete."
+        );
+      }
+      const supabase = createClient();
+      const { data, error } = await supabase.rpc("delete_person_permanently", {
+        p_person: id,
+      });
+      if (error) {
+        if (isNetworkError(error)) {
+          throw new Error("Deleting someone needs internet. Please try again when you have signal.");
+        }
+        throw error;
+      }
+      // The records are gone; now delete their photo and audio files too.
+      const files = (data ?? {}) as { photo_paths?: string[]; audio_paths?: string[] };
+      for (const [bucket, paths] of [
+        ["person-photos", files.photo_paths],
+        ["conversation-audio", files.audio_paths],
+      ] as const) {
+        if (!paths?.length) continue;
+        const { error: removeError } = await supabase.storage.from(bucket).remove(paths);
+        if (removeError) console.warn(`Could not remove ${bucket} files:`, removeError.message);
+      }
+      await refresh();
+    },
+    [applyDemo, demoMode, refresh]
+  );
+
   const mergePeople = useCallback(
     async (keepId: string, mergeId: string) => {
       if (demoMode) {
@@ -3953,6 +3996,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     deleteToolkitEntry,
     archivedPeople,
     restorePerson,
+    deletePersonPermanently,
     mergePeople,
     undoMerge,
     personalReminders,
