@@ -78,9 +78,12 @@ export interface Reply {
   at: string;
 }
 
-export type Decoded<T> = { ok: true; value: T } | { ok: false; reason: string };
+export type Decoded<T> =
+  | { ok: true; value: T }
+  /** `detail` says what was wrong with the link, for support. It never contains anyone's details. */
+  | { ok: false; reason: string; detail: string };
 
-const MAX_LINK_TOKEN = 6000;
+const MAX_LINK_TOKEN = 12000;
 const STATUSES: HandoverStatus[] = ["active", "paused", "completed"];
 const FREQUENCIES: StudyFrequency[] = ["weekly", "biweekly", "monthly", "custom"];
 
@@ -105,8 +108,137 @@ function fromBase64Url(token: string): string | null {
   }
 }
 
-export function encodeHandover(payload: Handover | Reply): string {
+/**
+ * The first form of a link: the whole payload as JSON with every field named.
+ * Links already sent in this form keep opening; new links use the compact form
+ * below, which is less than half the length.
+ */
+export function encodeHandoverV1(payload: Handover | Reply): string {
   return toBase64Url(JSON.stringify(payload));
+}
+
+// The compact form is a short list with no field names, a 22-character id
+// instead of 36, and six-digit dates. Empty things at the end are left off.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ID22_RE = /^[A-Za-z0-9_-]{22}$/;
+
+function idToShort(id: string): string {
+  if (!UUID_RE.test(id)) return id;
+  const hex = id.replace(/-/g, "");
+  let binary = "";
+  for (let i = 0; i < 32; i += 2) binary += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16));
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function idFromShort(value: string | null): string | null {
+  if (!value) return null;
+  if (UUID_RE.test(value)) return value;
+  if (!ID22_RE.test(value)) return value;
+  try {
+    const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "==";
+    const binary = atob(padded);
+    if (binary.length !== 16) return value;
+    const hex = Array.from(binary, (c) => c.charCodeAt(0).toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  } catch {
+    return value;
+  }
+}
+
+/** "2026-11-19" as "261119". Anything else becomes empty. */
+function shortDate(iso: string | null | undefined): string {
+  return iso && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.slice(2, 4) + iso.slice(5, 7) + iso.slice(8, 10) : "";
+}
+
+function longDate(value: string | null): string | null {
+  return value && /^\d{6}$/.test(value)
+    ? `20${value.slice(0, 2)}-${value.slice(2, 4)}-${value.slice(4, 6)}`
+    : value;
+}
+
+const orEmpty = (v: string | null | undefined) => v ?? "";
+
+function dropTrailingEmpty(list: (string | number)[]): (string | number)[] {
+  const out = [...list];
+  while (out.length && out[out.length - 1] === "") out.pop();
+  return out;
+}
+
+export function encodeHandover(payload: Handover | Reply): string {
+  const list =
+    payload.kind === "handover"
+      ? [
+          2, "h", idToShort(payload.studyId), payload.from, orEmpty(payload.to),
+          shortDate(payload.start), shortDate(payload.end),
+          payload.person.name, orEmpty(payload.person.phone), orEmpty(payload.person.place),
+          payload.study.publication, payload.study.lessonNumber, payload.study.totalLessons,
+          FREQUENCIES.indexOf(payload.study.frequency), STATUSES.indexOf(payload.study.status),
+          orEmpty(payload.study.lesson), orEmpty(payload.study.preferredDay),
+          orEmpty(payload.study.preferredTime), shortDate(payload.study.nextDate),
+          orEmpty(payload.study.nextTime), shortDate(payload.study.lastDate),
+          orEmpty(payload.study.prep),
+        ]
+      : [
+          2, "r", idToShort(payload.studyId), orEmpty(payload.person), payload.by,
+          payload.lessonNumber, STATUSES.indexOf(payload.status), shortDate(payload.at),
+          orEmpty(payload.lesson), shortDate(payload.nextDate), orEmpty(payload.nextTime),
+          orEmpty(payload.note),
+        ];
+  return toBase64Url(JSON.stringify(dropTrailingEmpty(list)));
+}
+
+/** Turns the compact list back into the full shape that is then checked like any other link. */
+function expandCompact(a: unknown[]): Record<string, unknown> | null {
+  if (a[0] !== 2) return null;
+  const str = (i: number) => (typeof a[i] === "string" && a[i] !== "" ? (a[i] as string) : null);
+  const num = (i: number) => (typeof a[i] === "number" ? (a[i] as number) : null);
+  const pick = <T,>(list: T[], i: number): T | null => {
+    const n = num(i);
+    return n === null ? null : (list[n] ?? null);
+  };
+  if (a[1] === "h") {
+    return {
+      v: HANDOVER_VERSION,
+      kind: "handover",
+      studyId: idFromShort(str(2)),
+      from: str(3),
+      to: str(4),
+      start: longDate(str(5)),
+      end: longDate(str(6)),
+      person: { name: str(7), phone: str(8), place: str(9) },
+      study: {
+        publication: str(10),
+        lessonNumber: num(11),
+        totalLessons: num(12),
+        frequency: pick(FREQUENCIES, 13),
+        status: pick(STATUSES, 14),
+        lesson: str(15),
+        preferredDay: str(16),
+        preferredTime: str(17),
+        nextDate: longDate(str(18)),
+        nextTime: str(19),
+        lastDate: longDate(str(20)),
+        prep: str(21),
+      },
+    };
+  }
+  if (a[1] === "r") {
+    return {
+      v: HANDOVER_VERSION,
+      kind: "reply",
+      studyId: idFromShort(str(2)),
+      person: str(3),
+      by: str(4),
+      lessonNumber: num(5),
+      status: pick(STATUSES, 6),
+      at: longDate(str(7)),
+      lesson: str(8),
+      nextDate: longDate(str(9)),
+      nextTime: str(10),
+      note: str(11),
+    };
+  }
+  return null;
 }
 
 // ------------------------------------------------------------- validation
@@ -129,7 +261,7 @@ function isoDate(value: unknown): string | null {
 }
 
 function lessonNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 999
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 9999
     ? value
     : null;
 }
@@ -140,26 +272,71 @@ function oneOf<T extends string>(value: unknown, allowed: T[]): T | null {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function parseToken(token: string): Record<string, unknown> | null {
-  if (!token || token.length > MAX_LINK_TOKEN) return null;
+/**
+ * The link's token, tolerant of the small damage a message app can do: a
+ * "%" code, or a full stop, comma or bracket stuck on the end.
+ */
+function cleanToken(token: string): string {
+  let t = token.trim();
+  try {
+    t = decodeURIComponent(t);
+  } catch {
+    // Not percent-encoded; use it as it is.
+  }
+  return t.match(/^[A-Za-z0-9_-]+/)?.[0] ?? "";
+}
+
+type Parsed = { raw: Record<string, unknown> } | { problem: string };
+
+function parseToken(input: string): Parsed {
+  const token = cleanToken(input);
+  if (!token) return { problem: "the link has no details after the # (it may have been cut off)" };
+  if (token.length > MAX_LINK_TOKEN) {
+    return { problem: `the link is too long (${token.length} characters)` };
+  }
   const json = fromBase64Url(token);
-  if (json === null) return null;
+  if (json === null) {
+    return { problem: `the details could not be read (${token.length} characters; the link may have been cut off)` };
+  }
   try {
     const parsed: unknown = JSON.parse(json);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
+    if (Array.isArray(parsed)) {
+      const expanded = expandCompact(parsed);
+      return expanded
+        ? { raw: expanded }
+        : { problem: "the details are in a form this version does not know" };
+    }
+    return parsed && typeof parsed === "object"
+      ? { raw: parsed as Record<string, unknown> }
+      : { problem: "the details are not in the expected form" };
   } catch {
-    return null;
+    return { problem: `the details are incomplete (${token.length} characters; the link may have been cut off)` };
   }
 }
 
 const BAD_LINK = "This link doesn't look right. Ask for it to be sent again.";
 
+const fail = (detail: string): { ok: false; reason: string; detail: string } => ({
+  ok: false,
+  reason: BAD_LINK,
+  detail,
+});
+
+/** The names of the fields that are missing or wrong, never their contents. */
+function missing(checks: Record<string, unknown>): string {
+  return `missing or wrong: ${Object.keys(checks).filter((k) => !checks[k]).join(", ")}`;
+}
+
 export function decodeHandover(token: string): Decoded<Handover> {
-  const raw = parseToken(token);
-  if (!raw || raw.kind !== "handover" || raw.v !== HANDOVER_VERSION) {
-    return { ok: false, reason: BAD_LINK };
+  const parsed = parseToken(token);
+  if ("problem" in parsed) return fail(parsed.problem);
+  const raw = parsed.raw;
+  if (raw.kind !== "handover" || raw.v !== HANDOVER_VERSION) {
+    return fail(
+      raw.kind === "reply"
+        ? "this is an update link, not a handover link"
+        : "this is not a handover link"
+    );
   }
   const person = (raw.person ?? {}) as Record<string, unknown>;
   const study = (raw.study ?? {}) as Record<string, unknown>;
@@ -177,7 +354,20 @@ export function decodeHandover(token: string): Decoded<Handover> {
 
   if (!studyId || !from || !start || !end || end < start || !name || !publication ||
       !number || !total || !frequency || !status) {
-    return { ok: false, reason: BAD_LINK };
+    return fail(
+      missing({
+        studyId,
+        from,
+        start,
+        "end (or it is before the start)": end && end >= (start ?? "") ? end : null,
+        "person name": name,
+        publication,
+        "lesson number": number,
+        "total lessons": total,
+        frequency,
+        status,
+      })
+    );
   }
 
   return {
@@ -214,9 +404,15 @@ export function decodeHandover(token: string): Decoded<Handover> {
 }
 
 export function decodeReply(token: string): Decoded<Reply> {
-  const raw = parseToken(token);
-  if (!raw || raw.kind !== "reply" || raw.v !== HANDOVER_VERSION) {
-    return { ok: false, reason: BAD_LINK };
+  const parsed = parseToken(token);
+  if ("problem" in parsed) return fail(parsed.problem);
+  const raw = parsed.raw;
+  if (raw.kind !== "reply" || raw.v !== HANDOVER_VERSION) {
+    return fail(
+      raw.kind === "handover"
+        ? "this is a handover link, not an update link"
+        : "this is not an update link"
+    );
   }
   const studyId = typeof raw.studyId === "string" && UUID.test(raw.studyId) ? raw.studyId : null;
   const by = requiredText(raw.by, 80);
@@ -224,7 +420,7 @@ export function decodeReply(token: string): Decoded<Reply> {
   const status = oneOf(raw.status, STATUSES);
   const at = isoDate(raw.at);
   if (!studyId || !by || !number || !status || !at) {
-    return { ok: false, reason: BAD_LINK };
+    return fail(missing({ studyId, name: by, "lesson number": number, status, date: at }));
   }
   return {
     ok: true,
@@ -281,6 +477,11 @@ export interface HandoverChoices {
 }
 
 /** The handover for a study. Private notes are never included, whatever is chosen. */
+const clip = (value: string | null | undefined, max: number): string | null => {
+  const v = (value ?? "").trim();
+  return v ? v.slice(0, max) : null;
+};
+
 export function buildHandover(
   study: BibleStudy,
   person: Person,
@@ -294,37 +495,37 @@ export function buildHandover(
     v: HANDOVER_VERSION,
     kind: "handover",
     studyId: study.id,
-    from: from.trim() || "A friend",
-    to: choices.to?.trim() || null,
+    from: clip(from, 80) ?? "A friend",
+    to: clip(choices.to, 80),
     start: choices.start,
     end: choices.end,
     person: {
-      name: person.name,
-      phone: choices.include.phone ? person.phone_number || null : null,
-      place: choices.include.place ? place || null : null,
+      name: clip(person.name, 80) ?? "Unnamed",
+      phone: choices.include.phone ? clip(person.phone_number, 30) : null,
+      place: choices.include.place ? clip(place, 200) : null,
     },
     study: {
-      publication: study.publication,
-      lessonNumber: study.current_lesson_number,
-      lesson: study.current_lesson,
-      totalLessons: study.total_lessons,
+      publication: clip(study.publication, 120) ?? "Bible study",
+      lessonNumber: Math.min(9999, Math.max(1, study.current_lesson_number || 1)),
+      lesson: clip(study.current_lesson, 120),
+      totalLessons: Math.min(9999, Math.max(1, study.total_lessons || 60)),
       frequency: study.study_frequency,
-      preferredDay: study.preferred_day,
-      preferredTime: study.preferred_time,
+      preferredDay: clip(study.preferred_day, 20),
+      preferredTime: clip(study.preferred_time, 20),
       nextDate: study.next_study_date,
-      nextTime: study.next_study_time,
+      nextTime: clip(study.next_study_time, 20),
       lastDate: study.last_study_date,
       status: study.status,
-      prep: choices.include.prep ? study.preparation_notes : null,
+      prep: choices.include.prep ? clip(study.preparation_notes, 1000) : null,
     },
   };
 }
 
-const shortDate = (iso: string) => format(parseISO(iso), "MMM d");
+const dayLabel = (iso: string) => format(parseISO(iso), "MMM d");
 
 /** The study as the person covering will have it in their own app. */
 export function handoverToStudyForm(h: Handover, personId: string): BibleStudyFormData {
-  const covering = `Covering for ${h.from} until ${shortDate(h.end)}.`;
+  const covering = `Covering for ${h.from} until ${dayLabel(h.end)}.`;
   return {
     person_id: personId,
     publication: h.study.publication,
@@ -390,7 +591,7 @@ export const STATUS_WORDS: Record<HandoverStatus, string> = {
 
 export function handoverMessage(h: Handover, link: string): string {
   return (
-    `Hi${h.to ? ` ${h.to}` : ""}, I'll be away from ${shortDate(h.start)} to ${shortDate(h.end)}. ` +
+    `Hi${h.to ? ` ${h.to}` : ""}, I'll be away from ${dayLabel(h.start)} to ${dayLabel(h.end)}. ` +
     `Could you please cover my Bible study with ${h.person.name}? Everything you need is here:
 
 ${link}
@@ -401,7 +602,7 @@ ${link}
 }
 
 export function replyMessage(reply: Reply, link: string): string {
-  const next = reply.nextDate ? `, next study ${shortDate(reply.nextDate)}` : "";
+  const next = reply.nextDate ? `, next study ${dayLabel(reply.nextDate)}` : "";
   return (
     `Update on the Bible study${reply.person ? ` with ${reply.person}` : ""}: ` +
     `now on lesson ${reply.lessonNumber}, ${STATUS_WORDS[reply.status]}${next}.

@@ -46,6 +46,7 @@ export default function HandoverReplyPage() {
       <Shell>
         <h1 className="font-display text-2xl font-bold text-stone-900">Update on a Bible study</h1>
         <p className="rounded-xl bg-rose-50 px-3 py-3 text-sm text-rose-700">{decoded.reason}</p>
+        <p className="px-1 text-xs text-stone-500">Details for support: {decoded.detail}</p>
       </Shell>
     );
   }

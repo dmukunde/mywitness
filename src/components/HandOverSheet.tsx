@@ -31,7 +31,10 @@ export function HandOverSheet({
   const [start, setStart] = useState(todayISO());
   const [end, setEnd] = useState(format(addDays(new Date(), 14), "yyyy-MM-dd"));
   const [phone, setPhone] = useState(Boolean(person.phone_number));
-  const [place, setPlace] = useState(true);
+  const hasPlace = Boolean(
+    study.general_location || person.general_location || person.area?.name
+  );
+  const [place, setPlace] = useState(hasPlace);
   const [prep, setPrep] = useState(Boolean(study.preparation_notes));
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -97,9 +100,26 @@ export function HandOverSheet({
             The name and the lesson are always included. Your private notes never are.
           </p>
           <div className="mt-1">
-            {choice("Phone number", phone, setPhone, !person.phone_number)}
-            {choice("Where to find them", place, setPlace)}
-            {choice("Your preparation notes", prep, setPrep, !study.preparation_notes)}
+            {choice(
+              person.phone_number ? "Phone number" : "Phone number (none saved)",
+              phone,
+              setPhone,
+              !person.phone_number
+            )}
+            {choice(
+              hasPlace ? "Where to find them" : "Where to find them (none saved)",
+              place,
+              setPlace,
+              !hasPlace
+            )}
+            {choice(
+              study.preparation_notes
+                ? "Your preparation notes"
+                : "Your preparation notes (none saved)",
+              prep,
+              setPrep,
+              !study.preparation_notes
+            )}
           </div>
         </div>
         <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900">

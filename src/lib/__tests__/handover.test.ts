@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BibleStudy, Person } from "@/lib/types";
 import {
+  encodeHandoverV1,
   buildHandover,
   handoverMessage,
   handoverToStudyForm,
@@ -110,8 +111,9 @@ describe("a quick update in a link", () => {
 });
 
 describe("a link that cannot be trusted", () => {
-  const bad = (payload: unknown) => decodeHandover(encodeHandover(payload as Handover));
-  const wrongKind = (payload: unknown) => decodeReply(encodeHandover(payload as Reply));
+  // Written in the first (full) form, so every field can be made wrong on purpose.
+  const bad = (payload: unknown) => decodeHandover(encodeHandoverV1(payload as Handover));
+  const wrongKind = (payload: unknown) => decodeReply(encodeHandoverV1(payload as Reply));
 
   it("is refused when it is not a link we made", () => {
     for (const t of ["", "!!!", "abc", "e30", "bnVsbA", "W10", "a".repeat(7000)]) {
@@ -152,7 +154,7 @@ describe("a link that cannot be trusted", () => {
     const note = wrongKind({ ...reply(), note: "n".repeat(700) });
     expect(note.ok && note.value.note).toHaveLength(600);
     // A link far longer than anything we would make is refused outright.
-    expect(wrongKind({ ...reply(), note: "n".repeat(7000) }).ok).toBe(false);
+    expect(wrongKind({ ...reply(), note: "n".repeat(20000) }).ok).toBe(false);
   });
 
   it("keeps markup as plain text (it is only ever shown as text) and ignores extra fields", () => {
@@ -299,5 +301,128 @@ describe("the messages", () => {
     expect(msg).toContain("now on lesson 16, paused, next study Dec 22");
     expect(msg).toContain("with Mary Nakato");
     expect(replyMessage(reply({ status: "completed", nextDate: null }), "l")).toContain("finished.");
+  });
+});
+
+describe("a link that a message app has slightly damaged", () => {
+  const token = () => encodeHandover(handover());
+
+  it("still opens with a full stop, comma, bracket or quote stuck on the end", () => {
+    for (const tail of [".", ",", ")", "\"", "!", "?", "\u201D"]) {
+      expect(decodeHandover(token() + tail)).toEqual({ ok: true, value: handover() });
+    }
+  });
+
+  it("still opens when the app has percent-encoded it or added spaces", () => {
+    expect(decodeHandover(` ${token()} `).ok).toBe(true);
+    expect(decodeHandover(encodeURIComponent(token())).ok).toBe(true);
+  });
+
+  it("opens an update link the same way", () => {
+    expect(decodeReply(encodeHandover(reply()) + ".").ok).toBe(true);
+  });
+});
+
+describe("saying what is wrong, without revealing anyone's details", () => {
+  it("says the link was cut off when only part of it arrived", () => {
+    const t = encodeHandover(handover());
+    const r = decodeHandover(t.slice(0, 60));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.detail).toMatch(/cut off|incomplete|could not be read/);
+  });
+
+  it("says when there is nothing after the #", () => {
+    const r = decodeHandover("");
+    expect(r).toMatchObject({ ok: false });
+    if (!r.ok) expect(r.detail).toMatch(/no details/);
+  });
+
+  it("names the field that is missing, never its contents", () => {
+    const r = decodeHandover(encodeHandover({ ...handover(), study: { ...handover().study, status: "bad" } } as unknown as Handover));
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.detail).toContain("status");
+      expect(r.detail).not.toContain("Mary");
+      expect(r.detail).not.toContain("0772");
+    }
+  });
+
+  it("says when an update link was used where a handover link belongs, and the other way round", () => {
+    const a = decodeHandover(encodeHandover(reply()));
+    const b = decodeReply(encodeHandover(handover()));
+    expect(!a.ok && a.detail).toMatch(/update link/);
+    expect(!b.ok && b.detail).toMatch(/handover link/);
+  });
+});
+
+describe("a handover that was built can always be opened", () => {
+  const long = (n: number) => "é".repeat(n);
+
+  it("copes with very long notes, names and places by shortening them", () => {
+    const h = buildHandover(
+      study({ preparation_notes: long(5000), publication: long(500), current_lesson: long(500), general_location: long(900) }),
+      person({ name: long(400), phone_number: "7".repeat(200), area: null }),
+      long(300),
+      { to: long(300), start: "2026-11-25", end: "2026-12-20", include: { phone: true, place: true, prep: true } }
+    );
+    const back = decodeHandover(encodeHandover(h));
+    expect(back.ok).toBe(true);
+    if (back.ok) {
+      expect(back.value.study.prep).toHaveLength(1000);
+      expect(back.value.person.name).toHaveLength(80);
+      expect(back.value.person.phone).toHaveLength(30);
+    }
+  });
+
+  it("copes with a study that has lesson numbers in the hundreds or none at all", () => {
+    expect(decodeHandover(encodeHandover(buildHandover(study({ current_lesson_number: 0, total_lessons: 0 }), person(), "D", choices()))).ok).toBe(true);
+    expect(decodeHandover(encodeHandover(buildHandover(study({ current_lesson_number: 1200, total_lessons: 2000 }), person(), "D", choices()))).ok).toBe(true);
+  });
+});
+
+describe("a short link", () => {
+  it("is less than half the length of the first form, and short enough to share", () => {
+    const h = handover();
+    const compact = encodeHandover(h);
+    const full = encodeHandoverV1(h);
+    expect(compact.length).toBeLessThan(full.length * 0.6);
+    expect(handoverLink("https://mywitness.vercel.app", h).length).toBeLessThan(420);
+    expect(replyLink("https://mywitness.vercel.app", reply()).length).toBeLessThan(380);
+  });
+
+  it("leaves off what is empty, so a bare study is shorter still", () => {
+    const bare = handover({ to: null, person: { name: "Mary", phone: null, place: null }, study: { ...handover().study, lesson: null, preferredDay: null, preferredTime: null, nextDate: null, nextTime: null, lastDate: null, prep: null } });
+    expect(encodeHandover(bare).length).toBeLessThan(encodeHandover(handover()).length);
+    expect(decodeHandover(encodeHandover(bare))).toEqual({ ok: true, value: bare });
+  });
+
+  it("round-trips every status and frequency", () => {
+    for (const status of ["active", "paused", "completed"] as const) {
+      for (const frequency of ["weekly", "biweekly", "monthly", "custom"] as const) {
+        const h = handover({ study: { ...handover().study, status, frequency } });
+        expect(decodeHandover(encodeHandover(h))).toEqual({ ok: true, value: h });
+      }
+    }
+    for (const status of ["active", "paused", "completed"] as const) {
+      expect(decodeReply(encodeHandover(reply({ status })))).toEqual({ ok: true, value: reply({ status }) });
+    }
+  });
+
+  it("keeps opening a link made in the first form, before the change", () => {
+    expect(decodeHandover(encodeHandoverV1(handover()))).toEqual({ ok: true, value: handover() });
+    expect(decodeReply(encodeHandoverV1(reply()))).toEqual({ ok: true, value: reply() });
+  });
+
+  it("refuses a short link with a wrong id, a wrong date or an unknown form", () => {
+    const tok = (list: unknown[]) => btoa(JSON.stringify(list)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    expect(decodeHandover(tok([3, "h", "x"])).ok).toBe(false);
+    expect(decodeHandover(tok([2, "z"])).ok).toBe(false);
+    const good = JSON.parse(atob(encodeHandover(handover()).replace(/-/g, "+").replace(/_/g, "/").padEnd(2000, "=").replace(/=+$/, "") + "==".slice(0, (4 - (encodeHandover(handover()).length % 4)) % 4)));
+    const brokenDate = [...good]; brokenDate[5] = "269913";
+    expect(decodeHandover(tok(brokenDate)).ok).toBe(false);
+    const brokenId = [...good]; brokenId[2] = "short";
+    expect(decodeHandover(tok(brokenId)).ok).toBe(false);
+    const brokenStatus = [...good]; brokenStatus[14] = 9;
+    expect(decodeHandover(tok(brokenStatus)).ok).toBe(false);
   });
 });
