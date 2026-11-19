@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Archive } from "lucide-react";
 import { useApp } from "@/lib/app-context";
 import { Button, Card, ConfirmDialog } from "@/components/ui";
 import { MergeContactsSheet } from "@/components/MergeContactsSheet";
@@ -257,12 +258,13 @@ export function PeopleCare() {
             type="button"
             onClick={() => setShowArchived((v) => !v)}
             aria-expanded={showArchived}
-            className="min-h-10 text-sm font-semibold text-stone-600 underline decoration-stone-300 underline-offset-2"
+            className="inline-flex min-h-11 items-center gap-2 rounded-full bg-amber-100 px-4 text-sm font-semibold text-amber-900 ring-1 ring-amber-300 transition hover:bg-amber-200"
           >
+            <Archive className="h-4 w-4" aria-hidden="true" />
             {showArchived ? "Hide" : "Show"} archived ({archivedPeople.length})
           </button>
           {showArchived && (
-            <Card className="mt-2">
+            <Card className="mt-2 bg-amber-50 ring-amber-200">
               <ul className="divide-y divide-stone-100">
                 {archivedPeople.map((p) => (
                   <li
