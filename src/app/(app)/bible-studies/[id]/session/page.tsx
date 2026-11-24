@@ -39,7 +39,6 @@ export default function WriteStudySessionPage() {
           bible_study_id: study.id,
           session_date: todayISO(),
           start_lesson: study.current_lesson || "",
-          end_lesson: study.current_lesson || "",
           next_lesson: "",
           source: "manual",
         }}

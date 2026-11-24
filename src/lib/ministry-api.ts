@@ -4,7 +4,11 @@
 import { createClient } from "@/lib/supabase/client";
 import type { DemoData } from "@/lib/demo-data";
 import { loadDemoData, saveDemoData } from "@/lib/demo-store";
-import { parseLessonNumber, statusAfterScheduling } from "@/lib/bible-study";
+import {
+  lessonAfterSession,
+  parseLessonNumber,
+  statusAfterScheduling,
+} from "@/lib/bible-study";
 import { emptyToNull, todayISO } from "@/lib/utils";
 import type {
   BibleStudy,
@@ -479,13 +483,11 @@ export function saveStudySessionDemo(
   completeStudyEventsDemo(data, study.id, session.session_date);
   const next = nextStudySchedule(study, form, session.session_date);
 
-  const endNum =
-    parseLessonNumber(form.end_lesson || form.next_lesson || "") ||
-    study.current_lesson_number;
+  const progress = lessonAfterSession(study, form);
   const updated: BibleStudy = {
     ...study,
-    current_lesson: form.next_lesson || form.end_lesson || study.current_lesson,
-    current_lesson_number: endNum,
+    current_lesson: progress.current_lesson,
+    current_lesson_number: progress.current_lesson_number,
     last_study_date: session.session_date,
     next_study_date: next.date,
     next_study_time: next.time,
@@ -650,15 +652,13 @@ export async function saveStudySessionRemote(
   await safeSync(() => completeStudyEventsSupabase(study.id, sessionDate));
   const next = nextStudySchedule(study, form, sessionDate);
 
-  const endNum =
-    parseLessonNumber(form.end_lesson || form.next_lesson || "") ||
-    study.current_lesson_number;
+  const progress = lessonAfterSession(study, form);
 
   const { data: updated, error: updErr } = await supabase
     .from("bible_studies")
     .update({
-      current_lesson: form.next_lesson || form.end_lesson || study.current_lesson,
-      current_lesson_number: endNum,
+      current_lesson: progress.current_lesson,
+      current_lesson_number: progress.current_lesson_number,
       last_study_date: sessionDate,
       next_study_date: next.date,
       next_study_time: next.time,

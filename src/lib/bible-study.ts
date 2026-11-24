@@ -1,4 +1,8 @@
-import type { BibleStudy, BibleStudyFormData } from "@/lib/types";
+import type {
+  BibleStudy,
+  BibleStudyFormData,
+  BibleStudySessionFormData,
+} from "@/lib/types";
 
 /**
  * Scheduling a next study means the study is going on: a paused or finished
@@ -38,6 +42,43 @@ export function parseLessonNumber(value: string | null | undefined): number | nu
   if (!match) return null;
   const n = Number(match[1]);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Where a study stands after a session is saved: the next lesson if one was
+ * given, otherwise the lesson that was studied. The lesson number follows the
+ * same lesson, so the progress bar and the label never disagree. If the lesson
+ * has no number in it ("Introduction"), the number stays as it was.
+ * (`end_lesson` is no longer asked for, but is still honoured if a record has one.)
+ */
+export function lessonAfterSession(
+  study: Pick<BibleStudy, "current_lesson" | "current_lesson_number">,
+  form: Pick<BibleStudySessionFormData, "next_lesson" | "end_lesson" | "start_lesson">
+): { current_lesson: string | null; current_lesson_number: number } {
+  const lesson =
+    form.next_lesson.trim() || form.end_lesson.trim() || form.start_lesson.trim() || null;
+  return {
+    current_lesson: lesson ?? study.current_lesson,
+    current_lesson_number: parseLessonNumber(lesson) || study.current_lesson_number,
+  };
+}
+
+/**
+ * Fields the study notes form no longer asks for. A voice note can still fill
+ * some of them in, so they are cleared on save rather than kept without being
+ * shown. (Notes saved earlier keep theirs.)
+ */
+export function withoutRemovedFields(
+  form: BibleStudySessionFormData
+): BibleStudySessionFormData {
+  return {
+    ...form,
+    end_lesson: "",
+    topics_discussed: "",
+    scriptures_discussed: "",
+    material_completed: "",
+    summary: "",
+  };
 }
 
 /**

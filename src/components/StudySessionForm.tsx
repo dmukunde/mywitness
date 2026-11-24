@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useSingleFlight } from "@/hooks/useSingleFlight";
+import { withoutRemovedFields } from "@/lib/bible-study";
 import { Button, Input, Textarea, TimeField } from "@/components/ui";
 import {
   EMPTY_STUDY_SESSION_FORM,
@@ -51,38 +52,15 @@ export function StudySessionForm({
         value={form.session_date}
         onChange={(e) => update("session_date", e.target.value)}
       />
-      <div className="grid grid-cols-2 gap-3">
-        <Input
-          label="Start lesson / section"
-          value={form.start_lesson}
-          onChange={(e) => update("start_lesson", e.target.value)}
-        />
-        <Input
-          label="End lesson / section"
-          value={form.end_lesson}
-          onChange={(e) => update("end_lesson", e.target.value)}
-        />
-      </div>
       <Input
-        label="Topics discussed"
-        value={form.topics_discussed}
-        onChange={(e) => update("topics_discussed", e.target.value)}
-      />
-      <Input
-        label="Scriptures discussed"
-        value={form.scriptures_discussed}
-        onChange={(e) => update("scriptures_discussed", e.target.value)}
-        hint="Separate with semicolons"
+        label="Lesson / section studied"
+        value={form.start_lesson}
+        onChange={(e) => update("start_lesson", e.target.value)}
       />
       <Textarea
         label="Questions raised"
         value={form.questions_raised}
         onChange={(e) => update("questions_raised", e.target.value)}
-      />
-      <Input
-        label="Material completed"
-        value={form.material_completed}
-        onChange={(e) => update("material_completed", e.target.value)}
       />
       <Textarea
         label="Homework / preparation agreed"
@@ -110,11 +88,6 @@ export function StudySessionForm({
         value={form.preparation_notes}
         onChange={(e) => update("preparation_notes", e.target.value)}
       />
-      <Textarea
-        label="Session summary"
-        value={form.summary}
-        onChange={(e) => update("summary", e.target.value)}
-      />
 
       {error && (
         <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -139,7 +112,7 @@ export function StudySessionForm({
               setSaving(true);
               setError(null);
               try {
-                await onSubmit(form);
+                await onSubmit(withoutRemovedFields(form));
               } catch (err) {
                 setError(err instanceof Error ? err.message : "Could not save.");
                 setSaving(false);
