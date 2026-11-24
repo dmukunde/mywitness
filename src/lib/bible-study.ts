@@ -44,6 +44,17 @@ export function parseLessonNumber(value: string | null | undefined): number | nu
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/** The brochure almost every study uses, chosen unless someone picks "Other". */
+export const DEFAULT_PUBLICATION = "Enjoy Life Forever!";
+
+/** True for the usual brochure, however it was typed (capitals and spaces do not matter). */
+export function isDefaultPublication(publication: string | null | undefined): boolean {
+  return (
+    (publication ?? "").trim().toLowerCase().replace(/\s+/g, " ") ===
+    DEFAULT_PUBLICATION.toLowerCase()
+  );
+}
+
 /**
  * Where a study stands after a session is saved: the next lesson if one was
  * given, otherwise the lesson that was studied. The lesson number follows the

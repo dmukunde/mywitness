@@ -6,7 +6,7 @@ import { useApp } from "@/lib/app-context";
 import { BibleStudyForm } from "@/components/BibleStudyForm";
 import { PageHeader } from "@/components/ui";
 import { todayISO } from "@/lib/utils";
-import { parseLessonNumber } from "@/lib/bible-study";
+import { DEFAULT_PUBLICATION, parseLessonNumber } from "@/lib/bible-study";
 
 function NewBibleStudyInner() {
   const router = useRouter();
@@ -24,7 +24,7 @@ function NewBibleStudyInner() {
 
   const initial = {
     person_id: person?.id || personId || "",
-    publication: person?.current_discussion_theme || "",
+    publication: DEFAULT_PUBLICATION,
     current_lesson: "Lesson 1",
     starting_lesson: "Lesson 1",
     current_lesson_number: 1,

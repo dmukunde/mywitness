@@ -32,6 +32,7 @@ import {
 } from "@/components/ui";
 import { StatusBadge } from "@/components/badges";
 import { MinistryDaySessions } from "@/components/MinistryDaySessions";
+import { DEFAULT_PUBLICATION } from "@/lib/bible-study";
 import { cn, formatDisplayDate, formatDuration, todayISO } from "@/lib/utils";
 import { groupMinutesByDate, sessionsOnDate } from "@/lib/ministry-time";
 import type {
@@ -303,10 +304,7 @@ function CalendarInner() {
           await saveBibleStudy(
             {
               person_id: form.person_id,
-              publication:
-                form.topic_or_lesson ||
-                person?.current_discussion_theme ||
-                "Bible study",
+              publication: DEFAULT_PUBLICATION,
               starting_lesson: form.topic_or_lesson || "Lesson 1",
               current_lesson: form.topic_or_lesson || "Lesson 1",
               current_lesson_number: 1,

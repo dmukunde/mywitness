@@ -16,7 +16,11 @@ import {
   type BibleStudyStatus,
   type Person,
 } from "@/lib/types";
-import { parseLessonNumber } from "@/lib/bible-study";
+import {
+  DEFAULT_PUBLICATION,
+  isDefaultPublication,
+  parseLessonNumber,
+} from "@/lib/bible-study";
 import { findPersonMatches } from "@/lib/person-match";
 import { MergeContactsSheet } from "@/components/MergeContactsSheet";
 import { useMemo, useState } from "react";
@@ -44,7 +48,12 @@ export function BibleStudyForm({
     ...EMPTY_BIBLE_STUDY_FORM,
     first_study_date: new Date().toISOString().slice(0, 10),
     ...initial,
+    // The usual brochure, unless this study already has a different one.
+    publication: initial?.publication?.trim() ? initial.publication : DEFAULT_PUBLICATION,
   });
+  const [otherPublication, setOtherPublication] = useState(
+    () => Boolean(initial?.publication?.trim()) && !isDefaultPublication(initial?.publication)
+  );
   const [saving, setSaving] = useState(false);
   const guard = useSingleFlight();
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +65,10 @@ export function BibleStudyForm({
   ) => setForm((prev) => ({ ...prev, [key]: value }));
 
   const doSubmit = async (allowDuplicate = false) => {
+    if (!form.publication.trim()) {
+      setError("Please type the name of the publication.");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -142,12 +155,44 @@ export function BibleStudyForm({
         />
       )}
 
-      <Input
+      <Select
         label="Study publication"
-        value={form.publication}
-        onChange={(e) => update("publication", e.target.value)}
-        placeholder="Enjoy Life Forever!"
-      />
+        value={otherPublication ? "other" : "default"}
+        onChange={(e) => {
+          if (e.target.value === "other") {
+            setOtherPublication(true);
+            update("publication", "");
+          } else {
+            setOtherPublication(false);
+            update("publication", DEFAULT_PUBLICATION);
+            update("total_lessons", 60);
+          }
+        }}
+      >
+        <option value="default">{DEFAULT_PUBLICATION}</option>
+        <option value="other">Other…</option>
+      </Select>
+      {otherPublication && (
+        <div className="grid grid-cols-3 gap-3">
+          <div className="col-span-2">
+            <Input
+              label="Name of the publication"
+              value={form.publication}
+              onChange={(e) => update("publication", e.target.value)}
+              placeholder="Another brochure or book"
+            />
+          </div>
+          <Input
+            label="Lessons"
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={999}
+            value={form.total_lessons || ""}
+            onChange={(e) => update("total_lessons", Number(e.target.value) || 0)}
+          />
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         <Input
